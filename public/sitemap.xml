@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+
+  <!-- MS MARKET PRINCIPAL -->
+  <url>
+    <loc>https://market.utopy.live/market</loc>
+    <lastmod>2026-05-06</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+  </url>
+
+  <!-- TOTEM / KIOSKO -->
+  <url>
+    <loc>https://market.utopy.live/market/totem</loc>
+    <lastmod>2026-05-06</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.75</priority>
+  </url>
+
+  <!-- FALCON STORE DENTRO DE MARKET -->
+  <url>
+    <loc>https://market.utopy.live/falcon/store</loc>
+    <lastmod>2026-05-06</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- FALCON SKYLINES -->
+  <url>
+    <loc>https://market.utopy.live/falcon/skylines</loc>
+    <lastmod>2026-05-06</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- FALCON DAILY -->
+  <url>
+    <loc>https://market.utopy.live/falcon/daily</loc>
+    <lastmod>2026-05-06</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- FALCON CAPITAL -->
+  <url>
+    <loc>https://market.utopy.live/falcon/capital</loc>
+    <lastmod>2026-05-06</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- RENTA / LEGACY PÚBLICO -->
+  <url>
+    <loc>https://market.utopy.live/renta</loc>
+    <lastmod>2026-05-06</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.65</priority>
+  </url>
+
+</urlset>

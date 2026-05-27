@@ -1,0 +1,35 @@
+{
+  "utopy": {
+    "node": {
+      "idHint": "spora@mobile",
+      "kind": "universal"
+    },
+    "transports": {
+      "gossip": {
+        "wsSeeds": ["wss://seed.mterra.space/utopy?ns=mt"],
+        "retryMs": 3000,
+        "backoffMaxMs": 20000,
+        "pingMs": 15000
+      },
+      "webrtc": {
+        "iceServers": [
+          {"urls": ["stun:stun.l.google.com:19302"]},
+          {"urls": ["stun:stun.cloudflare.com:3478"]},
+          {"urls": ["stun:global.stun.twilio.com:3478"]},
+          {
+            "urls": ["turn:seed.mterra.space:3478"],
+            "username": "utopy",
+            "credential": "utopy-resonancia"
+          }
+        ],
+        "preferMesh": true,
+        "maxPeers": 32
+      }
+    },
+    "semantics": {
+      "dictPolicy": "gossip-only",
+      "acceptUnsigned": true,
+      "maxKBPerSymbol": 256
+    }
+  }
+}

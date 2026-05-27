@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+
+Disallow: /login
+Disallow: /payment
+Disallow: /contrato
+Disallow: /exitoso
+Disallow: /pago-exitoso
+
+Sitemap: https://market.utopy.live/sitemap.xml

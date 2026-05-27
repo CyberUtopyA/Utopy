@@ -1,0 +1,7 @@
+{
+  "id": "utopy.node@local",
+  "prefer": "ws",
+  "ws": "ws://localhost:8787",
+  "http": [],
+  "webrtc": []
+}
