@@ -159,7 +159,8 @@ function normalizeCategory(input: any, tags: string[]): string {
   if (raw.includes("hogar") || raw.includes("casa")) return "hogar";
   if (raw.includes("tech") || raw.includes("electro") || raw.includes("tecno")) return "tech";
   if (raw.includes("shopping") || raw.includes("frontera") || raw.includes("brasil")) return "shopping";
-  if (raw.includes("moda")) return "moda";
+  if (/aro|anillo|pulsera|tobillera|collar|cadena|joya|accesorio|reloj|bolso|cartera/.test(raw)) return "accesorios";
+  if (/ropa|moda|prenda|camisa|remera|vestido|pantal[oó]n|calzado|zapato/.test(raw)) return "ropa";
 
   if (tags.some((t) => t.includes("shopping") || t.includes("frontera") || t.includes("brasil"))) {
     return "shopping";

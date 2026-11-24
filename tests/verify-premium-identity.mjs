@@ -1,0 +1,35 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import { createServer, transformWithEsbuild } from "vite";
+const server = await createServer({ server: { middlewareMode: true }, appType: "custom", logLevel: "silent" });
+try {
+  const bridge = await server.ssrLoadModule("/src/utopy/studioProfileBridge.ts");
+  for (const unsafe of ["javascript:alert(1)", "data:text/html,test", "https://user:pass@example.com", "http://example.com"]) assert.equal(bridge.safeStudioLink(unsafe), null);
+  const url = new URL(bridge.studioProfileUrl([], { actorId: "actor:private", nodeId: "node:my-business" }, "https://falcon.utopy.live/profile"));
+  assert.equal(url.pathname, "/studio");
+  assert.equal(url.searchParams.get("nodeId"), "node:my-business");
+  assert.equal(url.searchParams.has("actorId"), false);
+  assert.equal(url.searchParams.has("sessionId"), false);
+  const fake = bridge.studioProfileUrl([{ attrs: { links: { studio: "https://untrusted.example/studio" } } }], {}, "javascript:alert(1)");
+  assert.notEqual(new URL(fake).hostname, "untrusted.example");
+  assert.equal(new URL(fake).searchParams.has("returnTo"), false);
+  const profile = fs.readFileSync("src/components/LivingProfileQuickView.tsx", "utf8");
+  for (const label of ["Mi Valor", "Chat Directo", "Configuración", "Personalizar mi espacio"]) assert.ok(profile.includes(label));
+  assert.match(profile, /aria-modal="true"/);
+  assert.match(profile, /event.key === "Tab"/);
+  assert.match(profile, /event.key === "Escape"/);
+  assert.match(profile, /BovedaVivaPanel allLive=/);
+  assert.doesNotMatch(profile, /cardNumber|cvv|iframe|dangerouslySetInnerHTML/);
+  const checkout = fs.readFileSync("src/pages/checkoutmodal.tsx", "utf8");
+  assert.match(checkout, /onClick=\{confirmar\} disabled=\{cannotConfirm\}/);
+  assert.match(checkout, /checkout-action-total/);
+  const market = fs.readFileSync("src/pages/mercado.tsx", "utf8");
+  assert.match(market, /new ResizeObserver\(measure\)/);
+  assert.match(market, /observer\?\.disconnect\(\)/);
+  assert.match(market, /inset:calc\(var\(--market-header-height, 64px\) \+ 8px\)/);
+  assert.match(market, /<TopBar ref=\{headerRef\}>/);
+  assert.match(market, /tab !== "circular" && tab !== "mercado" \? <HeaderSearch/);
+  assert.doesNotMatch(market, /surfaceTab === "mercado" &&/);
+  for (const file of ["src/components/LivingProfileQuickView.tsx", "src/components/FalconShell.tsx", "src/utopy/studioProfileBridge.ts", "src/pages/mercado.tsx", "src/pages/liveprofile.tsx", "src/pages/checkoutmodal.tsx", "src/falcon/falconcheckoutmodal.tsx"]) await transformWithEsbuild(fs.readFileSync(file, "utf8"), file, { loader: "tsx" });
+  console.log("✓ Identidad premium: navegación segura a Studio, sin sesiones en URL, accesibilidad, componentes reutilizados, confirmación de checkout y sintaxis.");
+} finally { await server.close(); }

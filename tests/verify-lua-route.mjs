@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {transformWithEsbuild} from 'vite';
+const app=await readFile('src/App.jsx','utf8'),page=await readFile('src/pages/LuaPage.tsx','utf8');
+assert.match(app,/path="\/lua"/);assert.match(app,/path="\/lua\/gestionar"/);
+assert.match(page,/businessRegistry\(all\)/);assert.match(page,/businessAccess\(item,all\)/);
+assert.match(page,/item.nodeId===nodeId/);assert.match(page,/own.length===1/);
+assert.doesNotMatch(page,/publishAuthorizedDV|allowNodeBootstrap|installNodeDemonstrations/);
+await transformWithEsbuild(page,'src/pages/LuaPage.tsx',{loader:'tsx'});
+assert.deepEqual(JSON.parse(await readFile('public/lua-node.json','utf8')),{nodeId:''});
+console.log('OK: /lua public alias, protected management redirect, exact configured node binding, no automatic creation/grant, explicit unavailable presentation, TSX.');

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { usePresence } from "./usepresence";
 import { usePresenceActions } from "./usepresenceactions";
 import PresenceBottomSheet from "./presencebottomsheet";
@@ -12,6 +12,11 @@ type Props = {
   onOpenThread?: (threadId: string) => void;
   onOpenInvoice?: (payload: any) => void;
   onOpenMarket?: () => void;
+  onOpenWhatsApp?: (payload: any) => void;
+  onOpenMap?: (payload: any) => void;
+  onRespondSignal?: (payload: any) => void;
+  onRequestUtopy?: (payload: any) => void;
+  onConnectNode?: (payload: any) => void;
 };
 
 export default function MtPresenceOverlay({
@@ -22,9 +27,18 @@ export default function MtPresenceOverlay({
   onOpenThread,
   onOpenInvoice,
   onOpenMarket,
+  onOpenWhatsApp,
+  onOpenMap,
+  onRespondSignal,
+  onRequestUtopy,
+  onConnectNode,
 }: Props) {
   const { activeSignal, dismissSignal } = usePresence();
   const [sheetOpen, setSheetOpen] = useState(true);
+
+  useEffect(() => {
+    if (activeSignal?.id) setSheetOpen(true);
+  }, [activeSignal?.id]);
 
   const actionRunner = usePresenceActions({
     openProduct: (productId) => onOpenProduct?.(productId),
@@ -33,22 +47,24 @@ export default function MtPresenceOverlay({
     openThread: (threadId) => onOpenThread?.(threadId),
     openInvoice: (payload) => onOpenInvoice?.(payload),
     openMarket: () => onOpenMarket?.(),
+    openWhatsApp: (payload) => onOpenWhatsApp?.(payload),
+    openMap: (payload) => onOpenMap?.(payload),
+    respondSignal: (payload) => onRespondSignal?.(payload),
+    requestUtopy: (payload) => onRequestUtopy?.(payload),
+    connectNode: (payload) => onConnectNode?.(payload),
     custom: () => {},
   });
 
   const activeActionMap = useMemo(() => {
     const map = new Map<string, any>();
-    for (const a of activeSignal?.actions || []) {
-      map.set(a.id, a);
-    }
+    for (const action of activeSignal?.actions || []) map.set(action.id, action);
     return map;
   }, [activeSignal]);
 
   const handleAction = (actionId: string) => {
     if (!activeSignal) return;
     const action = activeActionMap.get(actionId);
-    if (!action) return;
-    actionRunner(action, activeSignal);
+    if (action) actionRunner(action, activeSignal);
   };
 
   const handleDismiss = () => {
@@ -60,7 +76,7 @@ export default function MtPresenceOverlay({
   if (isMobile) {
     return (
       <PresenceBottomSheet
-        open={!!activeSignal && sheetOpen}
+        open={Boolean(activeSignal && sheetOpen)}
         signal={activeSignal}
         onClose={handleDismiss}
         onAction={handleAction}

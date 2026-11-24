@@ -24,6 +24,9 @@ import UtopyPayCenter from "./utopypaycenter";
 type Props = {
   cajeros: MtCajero[];
   currentCajeroId?: string | null;
+  /** Identidad del comercio/nodo que recibe. Nunca es la clave privada ni el cajero. */
+  nodeId?: string | null;
+  nodeName?: string | null;
   onSelect: (cajero: MtCajero | null) => void;
 };
 
@@ -243,6 +246,8 @@ function formatLastSeen(ts?: string) {
 export default function CajerosPanel({
   cajeros,
   currentCajeroId,
+  nodeId,
+  nodeName,
   onSelect,
 }: Props) {
   const [search, setSearch] = useState("");
@@ -289,6 +294,30 @@ export default function CajerosPanel({
     [cajeros, currentCajeroId]
   );
 
+  const commerceId = useMemo(() => {
+    const anyCurrent = current as any;
+    return String(
+      nodeId ||
+        anyCurrent?.orgId ||
+        anyCurrent?.meta?.originNode ||
+        anyCurrent?.meta?.nodeId ||
+        anyCurrent?.meta?.authority ||
+        ""
+    ).trim();
+  }, [current, nodeId]);
+
+  const commerceName = useMemo(() => {
+    const anyCurrent = current as any;
+    return String(
+      nodeName ||
+        anyCurrent?.orgName ||
+        anyCurrent?.meta?.storeName ||
+        anyCurrent?.meta?.nodeName ||
+        commerceId ||
+        "Nodo"
+    ).trim();
+  }, [current, nodeName, commerceId]);
+
   const onlineCount = useMemo(
     () => cajeros.filter((c) => c.presence?.online).length,
     [cajeros]
@@ -306,7 +335,7 @@ export default function CajerosPanel({
           <TitleWrap>
             <Title>
               <Store size={16} />
-              Cajeros / Caja local
+              Caja viva del nodo
             </Title>
             <Summary>
               {current ? (
@@ -316,7 +345,7 @@ export default function CajerosPanel({
                   <ClearBtn onClick={() => onSelect(null)}>Cerrar turno</ClearBtn>
                 </>
               ) : (
-                <>Seleccioná un cajero para iniciar turno.</>
+                <>Seleccioná quién atiende. Los métodos de pago pertenecen al comercio.</>
               )}
             </Summary>
           </TitleWrap>
@@ -335,14 +364,14 @@ export default function CajerosPanel({
             <Search size={15} />
             <SearchInput
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e: any) => setSearch(e.target.value)}
               placeholder="Buscar por nombre, doc, teléfono, QR, NFC, card…"
             />
           </SearchBox>
 
           <SelectNs
             value={nsFilter}
-            onChange={(e) => setNsFilter(e.target.value)}
+            onChange={(e: any) => setNsFilter(e.target.value)}
           >
             <option value="__ALL__">Todos los espacios</option>
             {namespaces.map((ns) => (
@@ -482,7 +511,7 @@ export default function CajerosPanel({
         </List>
       </Card>
 
-      {current?.id && (
+      {current?.id && commerceId && (
         <>
           <Card>
             <Header>
@@ -498,16 +527,16 @@ export default function CajerosPanel({
             <div style={{ height: 8 }} />
 
             <CajeroChargesPanel
-              sellerId={current.id}
-              sellerName={current.nombre}
+              sellerId={commerceId}
+              sellerName={commerceName}
               ns={current.meta?.ns || "mt:market"}
             />
           </Card>
 
           <Card style={{ padding: 0, overflow: "hidden" as any }}>
             <UtopyPayCenter
-              sellerId={current.id}
-              sellerName={current.nombre}
+              sellerId={commerceId}
+              sellerName={commerceName}
               ns={current.meta?.ns || "mt:market"}
               onlyOpen
               embedded

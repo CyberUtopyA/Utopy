@@ -1,0 +1,46 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { createServer, transformWithEsbuild } from 'vite';
+const vite=await createServer({configFile:false,cacheDir:'node_modules/.vite-node-owner-test',optimizeDeps:{noDiscovery:true,include:[]},server:{middlewareMode:true},appType:'custom',logLevel:'silent'});
+try{
+ const onboarding=await vite.ssrLoadModule('/src/utopy/nodeOwnerOnboarding.ts');
+ const identity=await vite.ssrLoadModule('/src/utopy/identityContext.ts');
+ const publishing=await vite.ssrLoadModule('/src/utopy/authorizedPublish.ts');
+ const workspace=await vite.ssrLoadModule('/src/utopy/businessWorkspace.ts');
+ const owner2=await vite.ssrLoadModule('/src/utopy/ownership.ts?independent-owner-fixture');
+ const sender=await identity.resolveCurrentIdentityContext({allLive:[]});
+ const receiverWallet=await owner2.getWalletStatus();
+ assert.notEqual(receiverWallet.ownerDid,sender.ownerDid);
+ const receiverActor=await identity.deriveActorIdForOwnerDid(receiverWallet.ownerDid);
+ const setup={name:'Negocio de otra persona · prueba',purpose:'Presentación de prueba, sin operaciones',configuration:null};
+ const raw=onboarding.buildNodeSetupInvitation(setup,receiverActor,sender.actorId);
+ const signed=(await publishing.publishAuthorizedDV({dv:raw,allLive:[],localOnly:true,sensitivity:'sensitive'})).dv;
+ const verified=await onboarding.verifyNodeSetupInvitation(signed,receiverActor);
+ assert.deepEqual(verified.setup,setup);
+ await assert.rejects(()=>onboarding.verifyNodeSetupInvitation(signed,sender.actorId),/dirigida/);
+ await assert.rejects(()=>onboarding.verifyNodeSetupInvitation(signed,receiverActor,Date.now()+8*86400000),/venció/);
+ const tampered=structuredClone(signed);tampered.attrs.setup.name='Nombre alterado';
+ await assert.rejects(()=>onboarding.verifyNodeSetupInvitation(tampered,receiverActor),/firma/);
+ assert.throws(()=>onboarding.buildNodeSetupInvitation(setup,sender.actorId,sender.actorId));
+ assert.throws(()=>onboarding.buildNodeSetupInvitation(setup,'nombre-no-identidad',sender.actorId));
+ await assert.rejects(()=>onboarding.createNodeSetupInvitation(setup,receiverActor,false),/Confirmá/);
+ await assert.rejects(()=>onboarding.acceptNodeSetupInvitation(signed,sender.actorId,true),/persistente/);
+ const unsigned=onboarding.buildOwnerNodeManifest(verified.setup,signed.id);
+ assert.deepEqual(unsigned.attrs.capabilities,[]);assert.deepEqual(unsigned.attrs.endpoints,{});
+ assert.equal(unsigned.attrs.setupOnly,true);assert.equal(unsigned.attrs.onboardingInvitationId,signed.id);
+ assert.equal(unsigned.attrs.simulation,undefined);assert.equal(unsigned.attrs.productionReady,false);
+ assert.notEqual(onboarding.buildOwnerNodeManifest(verified.setup,signed.id).attrs.nodeId,unsigned.attrs.nodeId,'never reuse another node ID');
+ // Independent recipient signs with their own key: no key transfer or synthetic owner role.
+ const nodeId=unsigned.attrs.nodeId;
+ const manifest=await owner2.sealOwnedDV({...unsigned,attrs:{...unsigned.attrs,actorId:receiverActor,issuerActorId:receiverActor,actingAsNodeId:nodeId},meta:{...unsigned.meta,issuer:receiverActor}},receiverActor);
+ const proof=await publishing.verifyAuthorizedDV(manifest,[manifest]);assert.equal(proof.proof,'verified');
+ const [entry]=await workspace.businessRegistry([manifest]);assert.ok(entry);
+ assert.equal(await workspace.businessAccess(entry,[manifest]),null,'preparer has no management access to the recipient-signed node');
+ assert.equal(manifest.meta.ownership.ownerDid,receiverWallet.ownerDid);
+ assert.notEqual(manifest.meta.ownership.ownerDid,sender.ownerDid);
+ assert.equal(manifest.attrs.onboardingInviter,undefined,'do not publish private invitation contents');
+ for(const file of ['src/utopy/nodeOwnerOnboarding.ts','src/components/NodeOwnerOnboarding.tsx','src/pages/BusinessWorkspace.tsx'])await transformWithEsbuild(readFileSync(file,'utf8'),file,{loader:'tsx'});
+ const source=readFileSync('src/utopy/nodeOwnerOnboarding.ts','utf8');
+ assert.doesNotMatch(source,/roles:\s*\['owner'\]|allowedActions|fetch\(|localStorage/);
+ console.log('OK: two independent signing identities; recipient binding; sender verification; expiry; tamper rejection; fresh recipient-controlled node; preparer denied; no ownership-role shortcut, existing-node claim, production activation or ephemeral acceptance. Cross-device global one-use invitations and hosted account binding are NOT implemented.');
+}finally{await vite.close();}

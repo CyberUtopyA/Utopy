@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {transformWithEsbuild} from 'vite';
+const page=readFileSync('src/pages/BusinessWorkspace.tsx','utf8');
+assert.doesNotMatch(page,/Probar los siete|Demostración local|installNodeDemonstrations|NodeOwnerOnboarding|NodeCoordinationPanel|allowNodeBootstrap/);
+assert.match(page,/disabled aria-describedby="ub-provisioning-state"/,'unconfigured production provisioning must not pretend to be operational');
+assert.match(page,/filter\(isCommercialWorkspaceEntry\)/);
+assert.match(readFileSync('src/components/ProductionQueueWorkspace.tsx','utf8'),/filter\(isCommercialWorkspaceEntry\)/);
+for(const file of ['src/pages/falcondaily.tsx','src/components/LivingNodePanel.tsx'])assert.doesNotMatch(readFileSync(file,'utf8'),/PilotNodeDirectory|LivingPilotWorkspace/);
+for(const file of ['src/pages/BusinessWorkspace.tsx','src/pages/falcondaily.tsx','src/components/LivingNodePanel.tsx','src/components/ProductionQueueWorkspace.tsx'])await transformWithEsbuild(readFileSync(file,'utf8'),file,{loader:'tsx'});
+const css=readFileSync('src/components/businessWorkspace.css','utf8');
+assert.match(css,/prefers-reduced-motion/);assert.match(css,/focus-visible/);assert.match(css,/ub-content\[hidden\]/);
+console.log('OK: commercial UI has no demo bootstrap/reconstruction entrypoints; historical fixtures excluded, not promoted; unconfigured productive service blocked; permissions/routes preserved; responsive/reduced-motion/focus styles and TSX transforms. No production node deployment or browser visual QA performed.');

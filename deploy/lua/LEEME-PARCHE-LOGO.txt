@@ -1,0 +1,22 @@
+LUA · Parche incremental del logo
+
+BASE NECESARIA: LUA-ACTUALIZACION-WEB-20261112-201944.zip instalado previamente.
+Si no instalaste esa actualización, este parche solo no es una instalación completa.
+
+1. Guardá una copia de index.html y sw.js actuales.
+2. Subí este ZIP y extraelo donde está el index.html de MS Market.
+3. Reemplazá los archivos incluidos. No borres assets anteriores, API,
+   .htaccess, configuraciones, bases ni datos de identidad del navegador.
+4. Recargá /lua con Ctrl+F5 para actualizar la PWA.
+
+Incluye únicamente archivos nuevos o distintos respecto a la base:
+logo restaurado con transparencia, cambios de interfaz y dependencias con hash,
+índice y service worker cuando cambiaron. La fotografía de spa anterior no se
+vuelve a incluir porque no cambió.
+
+El logo aparece una sola vez en la portada, encima del mensaje de bienestar.
+El título repetido de la cabecera se elimina en el inicio de LUA. En las demás
+vistas se mantiene el logo en la cabecera. El menú de gestión conserva sus permisos.
+
+No requiere reinstalar Node.js. No cambia contraseñas, propiedad, permisos,
+catálogo, precios, reservas ni facturación. No borres IndexedDB.

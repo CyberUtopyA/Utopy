@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { transformWithEsbuild } from 'vite';
+const source=await readFile(new URL('../src/vault/vault.builders.ts',import.meta.url),'utf8');
+const {code}=await transformWithEsbuild(source,'vault.builders.ts',{loader:'ts',format:'esm',target:'es2022'});
+const vault=await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+const program=vault.buildBenefitProgramDV({programId:'test',issuerNodeId:'simulation:node',title:'Test',stampsRequired:1,simulation:true});
+const receipt={id:'simulation:receipt',kind:'pay.receipt',attrs:{buyerId:'simulation:actor',sellerId:'simulation:node',state:'settled',simulation:true,nonTradable:true}};
+const stamp=vault.buildValueStampDV({program,receipt,actorId:'simulation:actor'});
+assert.equal(stamp.id,vault.buildValueStampDV({program,receipt,actorId:'simulation:actor'}).id);
+assert(stamp.meta.scopes.includes('private:actor'));assert.equal(stamp.attrs.simulation,true);
+assert.throws(()=>vault.buildValueStampDV({program,receipt,actorId:'simulation:other'}));
+assert.throws(()=>vault.buildValueStampDV({program,receipt:{...receipt,attrs:{...receipt.attrs,state:'pending'}},actorId:'simulation:actor'}));
+const right=vault.buildValueRightDV({program,actorId:'simulation:actor',sourceStamps:[stamp]});
+assert.equal(right.attrs.nonTradable,true);assert.equal(right.attrs.transferable,false);
+assert.throws(()=>vault.buildBenefitAcceptanceDV({nodeId:'simulation:node'}));
+console.log('OK: private idempotent stamps, confirmed receipts, actor isolation, non-transferable rights, explicit acceptance.');

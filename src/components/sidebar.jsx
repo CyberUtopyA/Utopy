@@ -7,13 +7,12 @@ function Sidebar() {
   const navigate = useNavigate();
 
   const handleUserClick = () => {
-    // Ir directo al panel de nodos (sin login/registro)
-    navigate("/login");
+    navigate("/market?account=1");
   };
 
   return (
     <SidebarContainer>
-      <UserSection onClick={handleUserClick} title="Ir al panel de nodos">
+      <UserSection type="button" onClick={handleUserClick} title="Mi cuenta" aria-label="Mi cuenta">
         <UserCircle>
           <User size={18} color="#374151" />
         </UserCircle>
@@ -82,7 +81,9 @@ const BottomSection = styled.div`
   }
 `;
 
-const UserSection = styled.div`
+const UserSection = styled.button`
+  border:0;
+  background:transparent;
   display: flex;
   flex-direction: column;
   align-items: center;

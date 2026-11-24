@@ -95,7 +95,9 @@ function isCharge(d: AnyDV) {
 }
 
 function isOutcome(d: AnyDV) {
-  return safeStr(d?.kind) === "payment.outcome";
+  return safeStr(d?.kind) === "payment.outcome" &&
+    Boolean(d?.meta?.ownership?.signature?.value) &&
+    safeStr(d?.meta?.authority) === safeStr(d?.attrs?.actingAsNodeId);
 }
 
 function isProposal(d: AnyDV) {

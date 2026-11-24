@@ -1,0 +1,23 @@
+.living-booking .lb-card-carousel{display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x proximity;padding:10px 3px 20px;overscroll-behavior-x:contain;scrollbar-width:thin}
+.living-booking .lb-card-carousel .lb-edit-card{flex:0 0 168px;min-height:172px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:12px;white-space:normal;text-align:left;border:1px solid #d7cbbd;border-radius:24px;padding:18px;background:#fffaf3;color:#302a27;scroll-snap-align:start;box-shadow:0 3px 10px #241b1010;font-size:1rem;cursor:pointer}
+.living-booking .lb-edit-card small{font-size:.875rem;color:#635447;line-height:1.35}
+.living-booking .lb-edit-card img{width:58px;height:58px;object-fit:cover;border-radius:16px}
+.living-booking .lb-card-symbol{display:grid;place-items:center;width:54px;height:54px;border-radius:18px;background:#eee7dd;color:#66503c}
+.living-booking .lb-add-card .lb-card-symbol{border-radius:50%;background:#f8d86a;color:#382c0b}
+.living-booking .lb-card-carousel .lb-add-card{background:#fff8df;border-style:dashed}
+.living-booking .lb-edit-card:focus-visible,.living-booking .lb-editor-popup button:focus-visible{outline:3px solid #967125;outline-offset:3px}
+.living-booking .lb-editor-popup{color-scheme:light;width:min(560px,calc(100vw - 28px));max-height:88dvh;padding:0;border:1px solid #d7cbbd;border-radius:26px;background:#fffaf5;color:#302a27;box-shadow:0 18px 65px #0004;overflow:auto}
+.living-booking .lb-editor-popup::backdrop{background:#11182799}
+.living-booking .lb-editor-popup header,.living-booking .lb-editor-popup footer{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:18px 22px;background:#fffaf5}
+.living-booking .lb-editor-popup header{border-bottom:1px solid #e6ded3}
+.living-booking .lb-editor-popup header h2{font-size:1.3rem;margin:0}
+.living-booking .lb-editor-popup header button{display:grid;place-items:center;min-width:44px;min-height:44px;padding:8px;border-radius:50%}
+.living-booking .lb-popup-content{padding:8px 22px 18px}
+.living-booking .lb-editor-popup footer{border-top:1px solid #e6ded3}
+.living-booking .lb-editor-popup footer small{font-size:.875rem;color:#635447}
+.living-booking .lb-editor-popup footer button{background:#49382e;color:#fff;border-radius:20px;padding:12px 22px}
+@media(prefers-reduced-motion:no-preference){.living-booking .lb-edit-card{transition:transform .12s ease}.living-booking .lb-edit-card:active{transform:scale(.98)}}
+.living-booking .lb-shelf-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:1rem}
+.living-booking .lb-shelf-toolbar button{display:inline-flex;align-items:center;gap:8px;min-height:44px;font-size:.875rem}
+.living-booking .lb-card-carousel.lb-card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));overflow:visible}
+.living-booking .lb-card-grid .lb-edit-card{width:100%;min-width:0}

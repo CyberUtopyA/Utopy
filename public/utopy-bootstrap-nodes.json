@@ -1,0 +1,58 @@
+{
+  "version": 2,
+  "description": "Fuentes iniciales de nodos. Mantener IDs técnicos estables para no romper curaduría, fidelidad ni pedidos.",
+  "sources": [
+    {
+      "id": "decohogar",
+      "nodeId": "utopy.node.decohogar",
+      "nodeName": "DecoHogar",
+      "storeId": "decohogar",
+      "authority": "decohogar",
+      "catalogUrl": "https://decohogar.utopy.live/api/catalog-live.php",
+      "manifestUrl": "https://decohogar.utopy.live/api/node-manifest.php",
+      "verification": {
+        "type": "Ed25519Signature2020",
+        "keyId": "utopy.node.decohogar#ed25519-2026-08",
+        "publicKey": "xFpkG/PznRD4oeMFvvrKxDX7NOah1U207s0qOhXZsyg="
+      },
+      "falconSurfaces": ["falcon.store"],
+      "refreshMs": 60000,
+      "enabled": true
+    },
+    {
+      "id": "lapiedra-coffee",
+      "nodeId": "utopy.node.lapiedra.coffee",
+      "nodeName": "Pizza a la Piedra",
+      "storeId": "lapiedra-coffee",
+      "authority": "lapiedra-coffee",
+      "catalogUrl": "https://lapiedracoffe.utopy.live/api/catalog-live.php",
+      "falconSurfaces": ["falcon.daily"],
+      "refreshMs": 60000,
+      "enabled": true
+    },
+    {
+      "id": "luveau",
+      "nodeId": "utopy.node.luveau",
+      "nodeName": "LUVÉAU",
+      "storeId": "luveau",
+      "authority": "utopy.node.luveau",
+      "catalogUrl": "/api/node-live.php?node=luveau&resource=catalog",
+      "manifestUrl": "/api/node-live.php?node=luveau&resource=manifest",
+      "profileUrl": "/api/node-live.php?node=luveau&resource=profile",
+      "publicBaseUrl": "https://luveau.utopy.live/",
+      "remoteCatalogUrl": "https://luveau.utopy.live/catalog-live.php",
+      "remoteManifestUrl": "https://luveau.utopy.live/manifest-live.php",
+      "remoteProfileUrl": "https://luveau.utopy.live/profile-live.php",
+      "approximateLocation": {
+        "lat": -24.0633,
+        "lng": -54.3076,
+        "label": "Salto del Guairá, Canindeyú, Paraguay",
+        "precision": "city",
+        "source": "territory-centroid"
+      },
+      "falconSurfaces": ["falcon.store"],
+      "refreshMs": 60000,
+      "enabled": true
+    }
+  ]
+}

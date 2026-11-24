@@ -7,9 +7,9 @@ import { Shield, PlusCircle, Trash2, Send } from "lucide-react";
 
 import type { MtCajero } from "./mt.cajeroAdapter";
 import type { DatoVivo } from "./mt.traitAdapter";
-import { publishDatoVivo } from "./seedbus";
-import { mtLiveUpsert } from "./mt.liveStore";
 import { isAdminOrSupervisor } from "./mt.cajeroroles";
+import { buildNodeAuthorizationDV } from "../utopy/identityContext";
+import { publishAuthorizedDV } from "../utopy/authorizedPublish";
 
 const Wrap = styled.div`
   border: 1px solid rgba(0,0,0,0.08);
@@ -90,6 +90,7 @@ type Grant = {
 
 type Props = {
   activeCajero: MtCajero | null;
+  allLive?: any[];
   // para rellenar org/territorio por defecto si existen
   defaultOrgId?: string;
   defaultTerritorioId?: string;
@@ -115,6 +116,7 @@ function clamp01Str(s: string): number | undefined {
 
 export default function CajeroAuthPanel({
   activeCajero,
+  allLive = [],
   defaultOrgId,
   defaultTerritorioId,
   ns = "mt:market",
@@ -190,19 +192,53 @@ export default function CajeroAuthPanel({
       if (scope === "product" && !productId.trim()) throw new Error("scope product requiere productId.");
       if (scope === "order" && !orderId.trim()) throw new Error("scope order requiere orderId.");
 
-      const dv: DatoVivo = {
-        id: `mt:cajero.auth:${scope}:${uid()}`,
-        kind: "mt:cajero.auth",
-        traits: ["mt:cajero.auth", "mt:auth"],
-        attrs: buildAttrs(),
-        meta: { ns, ts: Date.now() },
+      const nodeId = String(activeCajero?.nodeId || "").trim();
+      if (!nodeId) {
+        throw new Error("Este cajero no declara qué nodo representa. No se puede emitir una delegación verificable.");
+      }
+      const scopedValues = [
+        scope,
+        orgId.trim() ? `org:${orgId.trim()}` : "",
+        territorioId.trim() ? `territory:${territorioId.trim()}` : "",
+        productId.trim() ? `product:${productId.trim()}` : "",
+        orderId.trim() ? `order:${orderId.trim()}` : "",
+      ].filter(Boolean);
+      const roleActions: Record<string, string[]> = {
+        admin: ["*"],
+        supervisor: ["commerce.order.*", "delivery.*", "work.*"],
+        cashier: ["commerce.order.receive", "market.order.accept", "payment.receive"],
+        carrier: ["delivery.accepted", "delivery.status", "delivery.outcome"],
+        witness: ["delivery.outcome.verify", "work.outcome.verify"],
       };
 
-      // eco local + publicar
-      mtLiveUpsert(dv);
-      await publishDatoVivo(dv);
+      for (const grant of grants) {
+        const allowedActions = Array.from(new Set(
+          grant.roles.flatMap((role) =>
+            roleActions[role] || (role.includes(".") ? [role] : []),
+          ),
+        ));
+        if (!allowedActions.length) {
+          throw new Error(`Los roles de ${grant.actorId} no conceden ninguna acción conocida.`);
+        }
+        const dv = buildNodeAuthorizationDV({
+          actorId: grant.actorId,
+          nodeId,
+          roles: grant.roles,
+          allowedActions,
+          scopes: scopedValues,
+          issuedByActorId: String(activeCajero?.actorId || "") || null,
+        });
+        await publishAuthorizedDV({
+          dv: dv as DatoVivo,
+          allLive,
+          activeActor: activeCajero,
+          actingAsNodeId: nodeId,
+          requiredAuthority: nodeId,
+          sensitivity: "sensitive",
+        });
+      }
 
-      setMsg("Autorización publicada ✅");
+      setMsg("Delegación firmada y publicada ✅");
       setGrants([]);
       setNote("");
     } catch (e: any) {

@@ -5,6 +5,11 @@ import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import PropertyCard from "./card";
 import RentalCard from "./alquiler";
+import {
+  asRentalMoneyNumber,
+  normalizeRentalProperty,
+  rentalMatchesPrice,
+} from "../utils/rentalProperty";
 
 // assets desde /public
 const BIENES_ICON = "/bienes.png";
@@ -59,50 +64,6 @@ const StyledMapContainer = styled.div`
 
 const DEFAULT_CENTER = [-24.0676, -54.3101];
 
-function asMoneyNumber(value) {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-
-  if (typeof value === "string") {
-    const cleaned = value.replace(/[^\d.,-]/g, "").replace(/\./g, "");
-    const normalized = cleaned.replace(",", ".");
-    const n = Number(normalized);
-    return Number.isFinite(n) ? n : null;
-  }
-
-  return null;
-}
-
-function getRoomPrice(room, property) {
-  return (
-    asMoneyNumber(room?.price) ??
-    asMoneyNumber(room?.monthly_price) ??
-    asMoneyNumber(room?.precio) ??
-    asMoneyNumber(property?.price) ??
-    asMoneyNumber(property?.precio) ??
-    null
-  );
-}
-
-function getRoomCurrency(room, property) {
-  return (
-    room?.currency ||
-    room?.moneda ||
-    property?.currency ||
-    property?.moneda ||
-    "PYG"
-  );
-}
-
-function getRoomImage(room, property) {
-  return (
-    room?.image ||
-    room?.cover ||
-    room?.photos?.[0] ||
-    property?.image ||
-    property?.photos?.[0] ||
-    ""
-  );
-}
 function getLatLng(location) {
   if (Array.isArray(location) && location.length >= 2) {
     const lat = Number(location[0]);
@@ -123,6 +84,10 @@ function getLatLng(location) {
   return null;
 }
 
+function hasMapLocation(property) {
+  return Boolean(getLatLng(property?.location));
+}
+
 function openGoogleMaps(location, label = "Ubicación") {
   const coords = getLatLng(location);
   if (!coords) return;
@@ -138,36 +103,6 @@ function openWaze(location) {
   const url = `https://waze.com/ul?ll=${coords.lat},${coords.lng}&navigate=yes`;
   window.open(url, "_blank", "noopener,noreferrer");
 }
-function normalizeRooms(property) {
-  const baseRooms = Array.isArray(property?.rooms) ? property.rooms : [];
-
-  return baseRooms.map((room, index) => {
-    const roomPrice = getRoomPrice(room, property);
-    const roomCurrency = getRoomCurrency(room, property);
-    const roomImage = getRoomImage(room, property);
-
-    return {
-      ...room,
-      id:
-        room?.id ||
-        `${property?.id || "property"}-room-${room?.number ?? index + 1}`,
-      number: room?.number ?? index + 1,
-      available: Boolean(room?.available),
-      price: roomPrice,
-      currency: roomCurrency,
-      image: roomImage,
-      photos:
-        Array.isArray(room?.photos) && room.photos.length > 0
-          ? room.photos
-          : roomImage
-          ? [roomImage]
-          : property?.image
-          ? [property.image]
-          : [],
-    };
-  });
-}
-
 function normalizeVentaProperty(property) {
   return {
     ...property,
@@ -176,68 +111,23 @@ function normalizeVentaProperty(property) {
   };
 }
 
-function normalizeRentalProperty(property) {
-  const normalizedRooms = normalizeRooms(property);
-
-  const minAvailablePrice = normalizedRooms
-    .filter((room) => room.available && typeof room.price === "number")
-    .map((room) => room.price)
-    .sort((a, b) => a - b)[0];
-
-  return {
-    ...property,
-    tipo: "alquiler",
-    operation: "Alquiler",
-    rooms: normalizedRooms,
-    roomCount: normalizedRooms.length,
-    availableRooms: normalizedRooms.filter((room) => room.available).length,
-    displayPrice:
-      typeof minAvailablePrice === "number"
-        ? minAvailablePrice
-        : asMoneyNumber(property?.price),
-    image:
-      property?.image ||
-      normalizedRooms.find((room) => room.image)?.image ||
-      normalizedRooms.find((room) => room.photos?.[0])?.photos?.[0] ||
-      "",
-  };
-}
-
-export default function MapComponent({ filters = {}, onCloseMap = () => {} }) {
+export default function MapComponent({ filters = {}, onCloseMap = () => {}, properties = null }) {
   const [zoomLevel, setZoomLevel] = useState(13);
   const [allProperties, setAllProperties] = useState([]);
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [ventaRes, alquilerRes] = await Promise.all([
-          fetch(
-            "https://raw.githubusercontent.com/CyberUtopyA/skylines/main/properties.json"
-          ),
-          fetch(
-            "https://raw.githubusercontent.com/CyberUtopyA/skylines/main/alquileres.json"
-          ),
-        ]);
-
-        const ventaData = await ventaRes.json();
-        const alquilerData = await alquilerRes.json();
-
-        const ventaConTipo = Array.isArray(ventaData)
-          ? ventaData.map(normalizeVentaProperty)
-          : [];
-
-        const alquilerConTipo = Array.isArray(alquilerData)
-          ? alquilerData.map(normalizeRentalProperty)
-          : [];
-
-        setAllProperties([...ventaConTipo, ...alquilerConTipo]);
-      } catch (err) {
-        console.error("Error al obtener datos:", err);
-      }
-    };
-
-    fetchData();
-  }, []);
+    if (Array.isArray(properties)) {
+      setAllProperties(
+        properties.map((property) =>
+          property?.tipo === "alquiler" || property?.operation === "Alquiler"
+            ? normalizeRentalProperty(property)
+            : normalizeVentaProperty(property),
+        ),
+      );
+      return;
+    }
+    setAllProperties([]);
+  }, [properties]);
 
   function ZoomHandler() {
     const map = useMap();
@@ -296,17 +186,12 @@ export default function MapComponent({ filters = {}, onCloseMap = () => {} }) {
         return false;
       }
 
-      const comparablePrice =
-        property.tipo === "alquiler"
-          ? asMoneyNumber(property.displayPrice ?? property.price) ?? 0
-          : asMoneyNumber(property.price) ?? 0;
-
-      if (filters.priceMin && comparablePrice < Number(filters.priceMin)) {
-        return false;
-      }
-
-      if (filters.priceMax && comparablePrice > Number(filters.priceMax)) {
-        return false;
+      if (property.tipo === "alquiler") {
+        if (!rentalMatchesPrice(property, filters)) return false;
+      } else {
+        const comparablePrice = asRentalMoneyNumber(property.price) ?? 0;
+        if (filters.priceMin && comparablePrice < Number(filters.priceMin)) return false;
+        if (filters.priceMax && comparablePrice > Number(filters.priceMax)) return false;
       }
 
       if (filters.operation && property.operation !== filters.operation) {
@@ -336,10 +221,10 @@ export default function MapComponent({ filters = {}, onCloseMap = () => {} }) {
             <Popup>Total de propiedades: {filteredProperties.length}</Popup>
           </Marker>
         ) : (
-          filteredProperties.map((property, index) => (
+          filteredProperties.filter(hasMapLocation).map((property, index) => (
             <Marker
               key={property.id || index}
-              position={property.location || DEFAULT_CENTER}
+              position={property.location}
               icon={property.tipo === "alquiler" ? hostalIcon : houseIcon}
             >
              <Popup>
@@ -347,7 +232,7 @@ export default function MapComponent({ filters = {}, onCloseMap = () => {} }) {
     {property.tipo === "alquiler" ? (
       <RentalCard
         image={property.image}
-        price={property.displayPrice ?? property.price}
+        price={property.price}
         currency={property.currency || "PYG"}
         name={property.name}
         description={property.description}

@@ -1,5 +1,6 @@
 import styled from "styled-components";
 import type { PresenceSignal } from "./presence.types";
+import ResonanceOrb from "./ResonanceOrb";
 
 const Wrap = styled.div`
   position: fixed;
@@ -13,14 +14,16 @@ const Wrap = styled.div`
 `;
 
 const Card = styled.div`
-  width: min(560px, 100%);
-  background: rgba(12, 12, 14, 0.88);
-  color: #fff;
-  border: 1px solid rgba(255,255,255,0.10);
-  box-shadow: 0 18px 50px rgba(0,0,0,0.32);
-  border-radius: 20px;
+  width: min(620px, 100%);
+  background:
+    radial-gradient(circle at 10% 0%, rgba(159,140,255,.16), transparent 34%),
+    rgba(247, 245, 255, 0.94);
+  color: #211e2d;
+  border: 1px solid rgba(93, 77, 136, 0.13);
+  box-shadow: 0 20px 55px rgba(45, 36, 70, 0.2);
+  border-radius: 24px;
   padding: 14px;
-  backdrop-filter: blur(14px);
+  backdrop-filter: blur(18px);
   pointer-events: auto;
 `;
 
@@ -28,6 +31,13 @@ const Row = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+`;
+
+const SignalHead = styled.div`
+  display: flex;
+  align-items: center;
+  min-width: 0;
   gap: 10px;
 `;
 
@@ -37,7 +47,7 @@ const Title = styled.div`
 `;
 
 const Subtle = styled.div`
-  opacity: 0.72;
+  opacity: 0.7;
   font-size: 0.9rem;
 `;
 
@@ -48,14 +58,20 @@ const Actions = styled.div`
   margin-top: 12px;
 `;
 
-const Btn = styled.button<{ kind?: "solid" | "ghost" }>`
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 12px;
+const Btn = styled.button<{ $primary?: boolean }>`
+  border: 1px solid rgba(66, 51, 105, 0.14);
+  border-radius: 14px;
   padding: 10px 12px;
   cursor: pointer;
   font-weight: 900;
-  background: ${({ kind }) => (kind === "solid" ? "#fff" : "transparent")};
-  color: ${({ kind }) => (kind === "solid" ? "#111" : "#fff")};
+  background: ${({ $primary }) => ($primary ? "#7160d7" : "rgba(255,255,255,.68)")};
+  color: ${({ $primary }) => ($primary ? "#fff" : "#2b2540")};
+  transition: transform .16s ease, box-shadow .16s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(76, 61, 120, 0.12);
+  }
 `;
 
 type Props = {
@@ -64,24 +80,27 @@ type Props = {
   onAction: (actionId: string) => void;
 };
 
-export default function PresenceOverlay({
-  signal,
-  onDismiss,
-  onAction,
-}: Props) {
+export default function PresenceOverlay({ signal, onDismiss, onAction }: Props) {
   if (!signal) return null;
 
   return (
     <Wrap>
       <Card>
         <Row>
-          <div>
-            <Title>{signal.title}</Title>
-            {signal.subtitle ? <Subtle>{signal.subtitle}</Subtle> : null}
-          </div>
-          <Btn kind="ghost" onClick={onDismiss}>
-            Ocultar
-          </Btn>
+          <SignalHead>
+            <ResonanceOrb
+              size={58}
+              seed={signal.id}
+              signature={signal.signature}
+              strength={signal.strength}
+            />
+            <div>
+              <Title>{signal.title}</Title>
+              {signal.subtitle ? <Subtle>{signal.subtitle}</Subtle> : null}
+              {signal.distanceLabel ? <Subtle>{signal.distanceLabel}</Subtle> : null}
+            </div>
+          </SignalHead>
+          <Btn onClick={onDismiss}>Ocultar</Btn>
         </Row>
 
         {signal.description ? (
@@ -89,9 +108,13 @@ export default function PresenceOverlay({
         ) : null}
 
         <Actions>
-          {signal.actions.map((a) => (
-            <Btn key={a.id} kind="solid" onClick={() => onAction(a.id)}>
-              {a.label}
+          {signal.actions.map((action, index) => (
+            <Btn
+              key={action.id}
+              $primary={index === 0}
+              onClick={() => onAction(action.id)}
+            >
+              {action.label}
             </Btn>
           ))}
         </Actions>

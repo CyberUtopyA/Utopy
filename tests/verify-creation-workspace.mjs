@@ -1,0 +1,33 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import { createServer, transformWithEsbuild } from "vite";
+const server = await createServer({ server: { middlewareMode: true }, appType: "custom", logLevel: "silent" });
+try {
+  const composer = fs.readFileSync("src/social/GuidedIntentComposer.tsx", "utf8");
+  for (const label of ["¿Qué querés hacer realidad?", "Vender", "Ofrecer", "Necesitar", "Producir", "Continuar", "Imagen"]) assert.ok(composer.includes(label));
+  assert.match(composer, /disabled=\{!text.trim\(\)\}/);
+  const { buildLiveSignalDV } = await server.ssrLoadModule("/src/social/liveNetwork.builders.ts");
+  const dv = buildLiveSignalDV({ actorId: "actor:test", actorName: "Persona de prueba", mode: "need", text: "Necesito madera para una mesa", image: "https://example.com/reference.png", threadId: "thread:example", scopes: ["private"] });
+  assert.equal(dv.attrs.image, "https://example.com/reference.png");
+  assert.equal(dv.attrs.threadId, "thread:example");
+  assert.deepEqual(dv.meta.scopes, ["private"]);
+  const market = fs.readFileSync("src/pages/mercado.tsx", "utf8");
+  assert.match(market, /setTab\("crear"\); navigate\("\/market\?tab=crear"\)/);
+  assert.match(market, /requestedView === "publicar" && shouldOpenCircular/);
+  assert.match(market, /<LivingCreationWorkspace allLive=/);
+  assert.match(market, /Centro de producción/);
+  assert.match(market, /navigate\(`\/market\?tab=circular&view=/);
+  const circular = fs.readFileSync("src/pages/circularcenter.tsx", "utf8");
+  assert.match(circular, /next === "publicar" && onCreate/);
+  const main = fs.readFileSync("src/social/LiveNetworkPanel.tsx", "utf8");
+  assert.match(main, /uploadConversationReferences\(\[imageFile\]\)/);
+  assert.match(main, /imageFile && signalPrivacy.includes\("noShare"\)/);
+  assert.match(main, /Object.assign\(signalDV.attrs, \{ contextRef:/);
+  assert.match(main, /linkedContext.*scopes.*public/s);
+  assert.match(main, /if \(threadId && onOpenThread\) onOpenThread/);
+  const workspace = fs.readFileSync("src/components/LivingCreationWorkspace.tsx", "utf8");
+  assert.match(workspace, /showAdvanced \? advanced : null/);
+  assert.doesNotMatch(workspace, /leaflet|model-viewer|createLivingCharge/);
+  for (const file of ["src/pages/mercado.tsx", "src/pages/circularcenter.tsx", "src/components/LivingCreationWorkspace.tsx", "src/social/LiveNetworkPanel.tsx", "src/social/GuidedIntentComposer.tsx", "src/social/liveNetwork.builders.ts"]) await transformWithEsbuild(fs.readFileSync(file, "utf8"), file, { loader: "tsx" });
+  console.log("✓ Crear: DV con imagen/hilo/privacidad, ruta propia, mapa delegado, producción preservada, cuatro accesos, contexto público y sintaxis. Sin publicación ni validación visual.");
+} finally { await server.close(); }

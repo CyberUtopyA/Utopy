@@ -300,6 +300,25 @@ export type LiquiditySettlementBatchInput = {
   scopeId?: string;
   ttlMs?: number;
   pinned?: boolean;
+  orderId?: string;
+  workId?: string;
+  chainId?: string;
+  threadId?: string;
+  relationshipId?: string;
+  participants?: string[];
+  custody?: "none";
+  settlementProviderId?: string | null;
+  obligations?: Array<{
+    obligationId: string;
+    fromActorId: string;
+    toActorId: string;
+    amount: number;
+    currency?: string;
+    reason?: string | null;
+    sourceKind?: string | null;
+    sourceId?: string | null;
+    dueAt?: string | null;
+  }>;
 };
 
 export function buildLiquidityEscrowOpenDV(input: LiquidityEscrowInput): DVLike {
@@ -440,8 +459,14 @@ export function buildLiquidityCreditRepayDV(input: LiquidityCreditRepayInput): D
 }
 
 export function buildLiquiditySettlementBatchDV(input: LiquiditySettlementBatchInput): DVLike {
+  const obligations = (input.obligations || []).map((obligation) => ({
+    ...obligation,
+    amount: safeNum(obligation.amount),
+    currency: asCurrency(obligation.currency || input.currency),
+    state: "planned",
+  }));
   return {
-    id: makeId("liq.settlement.batch"),
+    id: `liq.settlement.batch:${input.batchId}`,
     kind: "liq.settlement.batch",
     ts: now(),
     traits: ["mt:liquidity", "mt:settlement", "mt:market"],
@@ -452,7 +477,7 @@ export function buildLiquiditySettlementBatchDV(input: LiquiditySettlementBatchI
       pinned: input.pinned,
       by: input.actorId,
       trustScore: input.trustScore,
-      schema: "utopy.liq.settlement.batch.v1",
+      schema: "utopy.liq.settlement.batch.v2",
     }),
     attrs: {
       amount: safeNum(input.amount),
@@ -460,6 +485,17 @@ export function buildLiquiditySettlementBatchDV(input: LiquiditySettlementBatchI
       actor: { id: input.actorId, name: input.actorName || input.actorId },
       batchId: input.batchId,
       reason: input.reason,
+      state: "planned",
+      custody: "none",
+      autoSettled: false,
+      settlementProviderId: input.settlementProviderId || null,
+      orderId: input.orderId || null,
+      workId: input.workId || null,
+      chainId: input.chainId || null,
+      threadId: input.threadId || null,
+      relationshipId: input.relationshipId || null,
+      participants: Array.from(new Set(input.participants || [])),
+      obligations,
     },
   };
 }

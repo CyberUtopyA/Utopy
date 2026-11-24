@@ -1,12 +1,10 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import styled from "styled-components";
 import {
   MessageCircle,
   Package2,
   Megaphone,
   Send,
-  Truck,
-  Archive,
   CheckCircle2,
   MessageCircleOff,
   Wand2,
@@ -14,18 +12,41 @@ import {
   Receipt,
   FileText,
 } from "lucide-react";
-import { mtLiveSubscribe, mtLiveUpsert } from "./mt.liveStore";
-import { publishDatoVivo } from "./seedbus";
-
+import { mtLiveSubscribe } from "./mt.liveStore";
+import {
+  buildThreadActionDV,
+  dedupeThreadDVs,
+  deriveThreadState,
+  formatHumanThreadTime,
+  humanThreadEventLabel,
+  isThreadDV,
+  resolveHumanActorName,
+  resolveHumanThreadTitle,
+  resolveDvThreadId,
+} from "./mt.threadProtocol";
+import {
+  buildAutopayRevokeRequestDV,
+  buildSubscriptionEventDV,
+  publishSubscriptionDV,
+} from "./mt.subscriptionIntent";
+import SignalComposer from "./signalComposer";
+import SubscriptionPanel from "./SubscriptionPanel";
+import {
+  resolveCurrentIdentityContext,
+  type CurrentIdentityContext,
+} from "../utopy/identityContext";
+import { publishAuthorizedDV } from "../utopy/authorizedPublish";
+import ConversationReferences, { uploadConversationReferences } from "../components/ConversationReferences";
 type TradeMode = "buyer" | "seller" | "cajero" | "all";
 
-const Box = styled.div`
+const Box = styled.div<{ $fullScreen?: boolean }>`
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 18px;
   background: #fff;
   padding: 12px;
   display: grid;
   gap: 12px;
+  ${({ $fullScreen }) => $fullScreen ? `height:100%;min-height:0;overflow:auto;border:0;border-radius:0;background:transparent;padding:8px;align-content:start;` : ""}
 `;
 
 const Header = styled.div`
@@ -82,7 +103,7 @@ const Conversation = styled.div`
   overflow: hidden;
 `;
 
-const MsgList = styled.div`
+const MsgList = styled.div<{ $fullScreen?: boolean }>`
   display: grid;
   gap: 8px;
   max-height: 360px;
@@ -90,6 +111,7 @@ const MsgList = styled.div`
   overflow-x: hidden;
   padding-right: 2px;
   min-width: 0;
+  ${({ $fullScreen }) => $fullScreen ? `max-height:calc(100dvh - 330px);min-height:160px;` : ""}
 `;
 
 const ThreadList = styled.div`
@@ -182,15 +204,46 @@ const QuickBtn = styled.button`
   &:hover {
     background: rgba(0, 0, 0, 0.03);
   }
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.55;
+  }
 `;
 
-const Msg = styled.div<{ mine?: boolean }>`
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  background: ${({ mine }) => (mine ? "rgba(21,255,0,0.08)" : "#fafafa")};
-  border-radius: 14px;
+const Msg = styled.div<{
+  $variant?: "mine" | "other" | "system" | "state" | "alert" | "success";
+}>`
+  width: fit-content;
+  max-width: 84%;
+  justify-self: ${({ $variant }) =>
+    $variant === "mine"
+      ? "end"
+      : $variant === "system" || $variant === "state"
+        ? "center"
+        : "start"};
+  border: 1px solid
+    ${({ $variant }) =>
+      $variant === "system" || $variant === "state"
+        ? "transparent"
+        : "rgba(0,0,0,0.08)"};
+  background: ${({ $variant }) =>
+    $variant === "mine"
+      ? "rgba(59,130,246,0.10)"
+      : $variant === "success"
+        ? "rgba(34,197,94,0.10)"
+        : $variant === "alert"
+          ? "rgba(245,158,11,0.14)"
+          : $variant === "system" || $variant === "state"
+            ? "rgba(15,23,42,0.045)"
+            : "#fff"};
+  border-radius: ${({ $variant }) =>
+    $variant === "system" || $variant === "state" ? "999px" : "16px"};
   padding: 10px;
   display: grid;
   gap: 6px;
+  font-size: ${({ $variant }) =>
+    $variant === "system" || $variant === "state" ? "0.86rem" : "inherit"};
 `;
 
 const Row = styled.div`
@@ -216,11 +269,12 @@ const TextArea = styled.textarea`
   }
 `;
 
-const ComposerCard = styled.div`
+const ComposerCard = styled.div<{ $fullScreen?: boolean }>`
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 14px;
   padding: 10px;
   background: #fff;
+  ${({ $fullScreen }) => $fullScreen ? `position:sticky;bottom:0;border-radius:20px;background:rgba(255,255,255,.92);backdrop-filter:blur(18px);` : ""}
 `;
 
 const BtnRow = styled.div`
@@ -262,89 +316,32 @@ function parseTs(d: any): number {
   return Number.isFinite(t) ? t : 0;
 }
 
-function getLocalBuyerActor() {
-  try {
-    const raw = localStorage.getItem("mt.actor");
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed?.id) return parsed;
-    }
-  } catch {}
-  return { id: "buyer:local", name: "Comprador local", role: "buyer" };
-}
-
 function looksLikeOrderThread(threadId: string) {
   return safeStr(threadId).startsWith("order:thread:");
 }
 
-function getThreadKind(d: any): "order" | "offer" | "design" {
+function getThreadKind(
+  d: any,
+): "order" | "offer" | "design" | "work" | "subscription" {
   const tid = safeStr(d?.attrs?.threadId);
   if (looksLikeOrderThread(tid)) return "order";
   if (tid.startsWith("mt.thread.design:")) return "design";
+  if (safeStr(d?.kind).startsWith("subscription.")) return "subscription";
+  if (safeStr(d?.kind).startsWith("work.")) return "work";
   return "offer";
 }
 
-function getReadableStatus(items: any[]) {
-  const sorted = [...items].sort((a, b) => parseTs(b) - parseTs(a));
-  const last = sorted[0];
-  const normalizedText = safeStr(last?.attrs?.text || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
+function threadKindLabel(kind: ReturnType<typeof getThreadKind>) {
+  if (kind === "order") return "Pedido";
+  if (kind === "design") return "Diseño";
+  if (kind === "work") return "Trabajo";
+  if (kind === "subscription") return "Recurrencia";
+  return "Oferta";
+}
 
-  if (!last) return { label: "Sin estado", tone: "neutral" as const };
-
-  const k = safeStr(last?.kind);
-  const ok = last?.attrs?.ok;
-
-  if (k === "market.order.event") {
-    if (ok === true) return { label: "Confirmado", tone: "ok" as const };
-    if (ok === false) return { label: "Disputa", tone: "warn" as const };
-  }
-
-  if (normalizedText.includes("oferta") && normalizedText.includes("complet")) {
-    return { label: "Oferta completada", tone: "ok" as const };
-  }
-
-  if (k === "sale.receipt") {
-    return { label: "Comprobante", tone: "ok" as const };
-  }
-
-  if (k === "market.invoice.draft") {
-    return { label: "Factura", tone: "info" as const };
-  }
-
-  if (
-    normalizedText.includes("debito automatico") &&
-    normalizedText.includes("cancel")
-  ) {
-    return { label: "Suscripción cancelada", tone: "warn" as const };
-  }
-
-  if (k === "trade.intent.accept")
-    return { label: "Aceptación", tone: "ok" as const };
-  if (k === "trade.intent.counter")
-    return { label: "Contraoferta", tone: "warn" as const };
-  if (k === "trade.intent.barter")
-    return { label: "Trueque", tone: "info" as const };
-  if (k === "trade.intent.fulfill")
-    return { label: "Producción", tone: "info" as const };
-  if (k === "mt.demand")
-    return { label: "Pedido de variante", tone: "info" as const };
-  if (k === "mt.consult")
-    return { label: "Consulta", tone: "info" as const };
-  if (k === "mt.consult.answer")
-    return { label: "Consulta respondida", tone: "ok" as const };
-
-  if (
-    k === "trade.intent.message" ||
-    k === "trade.message" ||
-    k === "market.order.message"
-  ) {
-    return { label: "Mensaje", tone: "neutral" as const };
-  }
-
-  return { label: "Activo", tone: "neutral" as const };
+function getReadableStatus(items: any[], viewerId?: string) {
+  const state = deriveThreadState(items, viewerId);
+  return { label: state.label, tone: state.tone };
 }
 
 function uniqueStrings(arr: any[]) {
@@ -352,63 +349,43 @@ function uniqueStrings(arr: any[]) {
 }
 
 function getLastPreviewText(d: any) {
-  return (
+  const explicit =
     safeStr(d?.attrs?.text) ||
+    safeStr(d?.attrs?.answer) ||
     safeStr(d?.attrs?.note) ||
     safeStr(d?.attrs?.message) ||
-    safeStr(d?.attrs?.notes) ||
-    (safeStr(d?.kind) === "sale.receipt"
+    safeStr(d?.attrs?.notes);
+  const normalizedExplicit = explicit
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  if (
+    ["trade.message", "market.order.message"].includes(safeStr(d?.kind)) &&
+    normalizedExplicit.includes("debito automatico") &&
+    normalizedExplicit.includes("cancel") &&
+    !d?.attrs?.authorizationId
+  ) {
+    return "Solicitud antigua sin confirmación verificable";
+  }
+  if (explicit) return explicit;
+  const humanEvent = humanThreadEventLabel(d);
+  if (humanEvent !== "Actualización") return humanEvent;
+  return (
+    safeStr(d?.kind) === "sale.receipt"
       ? `Comprobante ${safeStr(d?.attrs?.receiptNumber)} · Total: ${safeStr(d?.attrs?.total)} ${safeStr(d?.attrs?.currency)}`
       : safeStr(d?.kind) === "market.invoice.draft"
         ? `Factura ${safeStr(d?.attrs?.invoiceNumber)} · Total: ${safeStr(d?.attrs?.total)} ${safeStr(d?.attrs?.currency)}`
-        : safeStr(d?.kind))
+        : "Nueva actualización"
   );
 }
-function shortId(x: any, size = 6) {
-  const s = safeStr(x);
-  if (!s) return "";
-  if (s.length <= size) return s;
-  return s.slice(-size);
-}
-
-function humanThreadTitle(t: any) {
-  const title =
-    safeStr(t?.last?.attrs?.title) ||
-    safeStr(t?.last?.attrs?.productName) ||
-    safeStr(t?.last?.attrs?.nombre) ||
-    safeStr(t?.last?.attrs?.name) ||
-    safeStr(t?.last?.attrs?.description) ||
-    "";
-
-  if (title) return title.slice(0, 54);
-
-  if (t.kind === "order") {
-    return `Pedido #${shortId(t.orderId || t.threadId)}`;
-  }
-
-  if (t.kind === "design") {
-    return `Diseño MO #${shortId(t.productoId || t.offerId || t.threadId)}`;
-  }
-
-  return `Conversación #${shortId(t.offerId || t.productoId || t.threadId)}`;
-}
-
-function humanActorName(id: any, fallback = "Participante") {
-  const s = safeStr(id);
-  if (!s) return fallback;
-
-  if (s.includes("buyer")) return "Comprador";
-  if (s.includes("cajero")) return "Cajero";
-  if (s.includes("seller")) return "Vendedor";
-  if (s.includes("mo:")) return "Diseñador MO";
-  if (s.includes("local-node")) return "Nodo local";
-
-  return `${fallback} #${shortId(s)}`;
+function humanThreadTitle(t: any, allLive: any[] = []) {
+  return resolveHumanThreadTitle(t, allLive);
 }
 
 function getStepLabel(m: any) {
   const k = safeStr(m?.kind);
-  const txt = safeStr(m?.attrs?.text).toLowerCase();
+  const human = humanThreadEventLabel(m);
+  if (human !== "Actualización") return human;
 
   if (k === "mt.consult") return "Consulta";
   if (k === "mt.consult.answer") return "Respuesta";
@@ -420,16 +397,49 @@ function getStepLabel(m: any) {
     return "Evento";
   }
 
-  if (txt.includes("entregado")) return "Entregado";
-  if (txt.includes("retirar")) return "Listo para retirar";
-  if (txt.includes("camino")) return "En camino";
-  if (txt.includes("reservado")) return "Reservado";
-  if (txt.includes("completada")) return "Completado";
-
   if (k.includes("message")) return "Mensaje";
   if (k.includes("fulfill")) return "Producción";
 
   return "Actualización";
+}
+
+function messageVariant(m: any, mine: boolean) {
+  const kind = safeStr(m?.kind);
+  const status = safeStr(
+    m?.attrs?.transaction?.state || m?.attrs?.state || m?.attrs?.status,
+  ).toLowerCase();
+  if (["match.proposal", "resonance.response", "utopy.reaction.proposal"].includes(kind)) {
+    return "system" as const;
+  }
+  if (
+    /cancelled|disputed|refund/.test(status) ||
+    ["subscription.cancelled"].includes(kind)
+  ) {
+    return "alert" as const;
+  }
+  if (
+    (kind === "payment.outcome" &&
+      Boolean(m?.meta?.ownership?.signature?.value) &&
+      safeStr(m?.meta?.authority) === safeStr(m?.attrs?.actingAsNodeId)) ||
+    ["value.proof", "trust.proof", "subscription.active"].includes(kind) ||
+    (kind === "work.outcome" &&
+      (/verified|confirmed|accepted/.test(
+        safeStr(m?.attrs?.proof?.status).toLowerCase(),
+      ) ||
+        m?.attrs?.verified === true)) ||
+    status === "completed"
+  ) {
+    return "success" as const;
+  }
+  if (
+    /^(work\.(plan|execution|outcome)|delivery\.|subscription\.|payment\.autopay\.)/.test(
+      kind,
+    ) ||
+    kind === "market.order.event"
+  ) {
+    return "state" as const;
+  }
+  return mine ? ("mine" as const) : ("other" as const);
 }
 
 type Props = {
@@ -448,6 +458,7 @@ type Props = {
    * Oculta nombres técnicos largos y vuelve la vista más humana.
    */
   simple?: boolean;
+  fullScreen?: boolean;
 };
 
 export default function TradeInboxPanel({
@@ -457,24 +468,63 @@ export default function TradeInboxPanel({
   initialThreadId = null,
   focusThreadOnly = false,
   simple = true,
-}: Props) { 
+  fullScreen = false,
+}: Props) {
   const [all, setAll] = useState<any[]>([]);
+  const [identity, setIdentity] = useState<CurrentIdentityContext | null>(null);
   const [threadId, setThreadId] = useState<string>("");
   const [draft, setDraft] = useState("");
+  const [referenceFiles, setReferenceFiles] = useState<File[]>([]);
+  const [replySending, setReplySending] = useState(false);
+  const [replyError, setReplyError] = useState("");
+  const [newNeedMode, setNewNeedMode] = useState<
+    "choose" | "same" | "new" | null
+  >(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [showConversationDetails, setShowConversationDetails] = useState(false);
+  const [autopayPanelOpen, setAutopayPanelOpen] = useState(false);
+  const [readThreadIds, setReadThreadIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const buyerActor = useMemo(() => getLocalBuyerActor(), []);
-  const viewerId =
-    mode === "buyer"
-      ? String(buyerActor.id || "")
-      : mode === "cajero"
-        ? String(activeCajero?.id || "")
-        : mode === "seller"
-          ? "seller"
-          : String(activeCajero?.id || buyerActor.id || "");
+  const buyerActor = useMemo(
+    () => ({
+      id: identity?.actorId || "",
+      name: identity?.displayName || activeCajero?.nombre || activeCajero?.name || "Vos",
+      role: "buyer",
+    }),
+    [identity, activeCajero],
+  );
+  const viewerId = identity?.actorId || "";
+  const cajeroSurfaceId =
+    identity?.cajeroId ||
+    (/^mt:cajero:/i.test(String(activeCajero?.id || ""))
+      ? String(activeCajero.id)
+      : "");
 
   useEffect(() => {
     return mtLiveSubscribe((items) => setAll(items || []));
   }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    void resolveCurrentIdentityContext({
+      allLive: all,
+      activeActor: activeCajero,
+      actingAsNodeId:
+        activeCajero?.nodeId || activeCajero?.attrs?.nodeId || null,
+    })
+      .then((next) => {
+        if (mounted) setIdentity(next);
+      })
+      .catch(() => {
+        if (mounted) setIdentity(null);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [all, activeCajero]);
 
   useEffect(() => {
     if (initialThreadId) {
@@ -483,34 +533,24 @@ export default function TradeInboxPanel({
   }, [initialThreadId]);
 
   const tradeItems = useMemo(() => {
-    return (all || []).filter((d: any) => {
-      const k = safeStr(d?.kind);
-      const tid = safeStr(d?.attrs?.threadId);
-
-      return (
-        !!tid &&
-        (k === "trade.message" ||
-          k === "trade.intent.accept" ||
-          k === "trade.intent.counter" ||
-          k === "trade.intent.barter" ||
-          k === "trade.intent.fulfill" ||
-          k === "trade.intent.message" ||
-          k === "market.order.event" ||
-          k === "market.order.message" ||
-          k === "mt.demand" ||
-          k === "sale.receipt" ||
-          k === "market.invoice.draft" ||
-          k === "mt.consult" ||
-          k === "mt.consult.answer")
-      );
+    const relevant = (all || []).flatMap((d: any) => {
+      const tid = resolveDvThreadId(d, all || []);
+      if (!tid) return [];
+      const linked = {
+        ...d,
+        attrs: { ...(d?.attrs || {}), threadId: tid },
+        meta: { ...(d?.meta || {}), threadId: d?.meta?.threadId || tid },
+      };
+      return isThreadDV(linked) ? [linked] : [];
     });
+    return dedupeThreadDVs(relevant);
   }, [all]);
 
   const filteredThreads = useMemo(() => {
     const map = new Map<string, any[]>();
 
     for (const d of tradeItems) {
-      const tid = safeStr(d?.attrs?.threadId);
+      const tid = resolveDvThreadId(d);
       if (!tid) continue;
 
       const participants = Array.isArray(d?.attrs?.participants)
@@ -528,16 +568,29 @@ export default function TradeInboxPanel({
 
       if (mode === "buyer") {
         match =
-          participants.includes(String(buyerActor.id)) ||
-          safeStr(d?.attrs?.buyerId) === String(buyerActor.id) ||
-          safeStr(d?.attrs?.fromActorId) === String(buyerActor.id);
+          Boolean(viewerId) &&
+          (participants.includes(viewerId) ||
+            safeStr(d?.attrs?.buyerId) === viewerId ||
+            safeStr(d?.attrs?.fromActorId) === viewerId);
       } else if (mode === "cajero") {
         match =
-          !!activeCajero?.id &&
-          (participants.includes(String(activeCajero.id)) ||
-            cajeroId === String(activeCajero.id));
+          Boolean(viewerId) &&
+          (participants.includes(viewerId) ||
+            (Boolean(cajeroSurfaceId) &&
+              (participants.includes(cajeroSurfaceId) ||
+                cajeroId === cajeroSurfaceId)));
       } else if (mode === "seller") {
-        match = !!sellerId;
+        match =
+          Boolean(viewerId) &&
+          (sellerId === viewerId || participants.includes(viewerId));
+      } else {
+        match =
+          Boolean(viewerId) &&
+          (participants.includes(viewerId) ||
+            safeStr(d?.attrs?.buyerId) === viewerId ||
+            sellerId === viewerId ||
+            (Boolean(cajeroSurfaceId) &&
+              (participants.includes(cajeroSurfaceId) || cajeroId === cajeroSurfaceId)));
       }
 
       if (!match) continue;
@@ -551,7 +604,7 @@ export default function TradeInboxPanel({
       const sorted = [...items].sort((a, b) => parseTs(a) - parseTs(b));
       const last = sorted[sorted.length - 1];
 
-      const unread = sorted.filter((x) => {
+      const unread = readThreadIds.has(tid) ? 0 : sorted.filter((x) => {
         const unreadBy = Array.isArray(x?.attrs?.unreadBy)
           ? x.attrs.unreadBy.map(String)
           : [];
@@ -602,14 +655,23 @@ export default function TradeInboxPanel({
         (x) => safeStr(x?.kind) === "market.invoice.draft"
       );
 
-      const state = getReadableStatus(sorted);
+      const stateActorId =
+        mode === "seller"
+          ? identity?.actingAsNodeId || viewerId
+          : viewerId;
+      const operationState = deriveThreadState(sorted, stateActorId);
+      const state = getReadableStatus(sorted, stateActorId);
 
       return {
         threadId: tid,
         items: sorted,
         last,
         unread,
-        kind: getThreadKind(last),
+        kind: getThreadKind(
+          sorted.find((item) =>
+            /^(subscription\.|work\.)/.test(safeStr(item?.kind)),
+          ) || last,
+        ),
         participants,
         orderId: orderId || null,
         offerId: offerId || null,
@@ -621,6 +683,7 @@ export default function TradeInboxPanel({
         cajeroId: cajeroId || null,
         total,
         state,
+        operationState,
         hasReceipt,
         hasInvoice,
       };
@@ -632,7 +695,7 @@ if (focusThreadOnly && initialThreadId) {
 }
 
 return threads;
-  }, [tradeItems, mode, activeCajero, buyerActor, viewerId]);
+  }, [tradeItems, mode, buyerActor, viewerId, cajeroSurfaceId, identity, readThreadIds]);
 
 useEffect(() => {
   if (initialThreadId) {
@@ -650,29 +713,25 @@ useEffect(() => {
     return filteredThreads.find((t) => t.threadId === threadId) || null;
   }, [filteredThreads, threadId]);
 
+  useEffect(() => {
+    setNewNeedMode(null);
+    setDetailsOpen(false);
+    setAutopayPanelOpen(false);
+  }, [threadId]);
+
+  useEffect(() => { setDraft(""); setReferenceFiles([]); setReplyError(""); }, [threadId]);
+
   const markThreadRead = (tid: string) => {
-    const th = filteredThreads.find((t) => t.threadId === tid);
-    if (!th || !viewerId) return;
-
-    for (const dv of th.items) {
-      const unreadBy = Array.isArray(dv?.attrs?.unreadBy)
-        ? dv.attrs.unreadBy.map(String)
-        : [];
-
-      if (!unreadBy.includes(String(viewerId))) continue;
-
-      mtLiveUpsert({
-        ...dv,
-        attrs: {
-          ...(dv?.attrs || {}),
-          unreadBy: unreadBy.filter((x: string) => x !== String(viewerId)),
-        },
-      } as any);
-    }
+    if (!viewerId) return;
+    setReadThreadIds((current) => {
+      const next = new Set(current);
+      next.add(tid);
+      return next;
+    });
   };
 
   const buildReplyPayload = (text: string) => {
-    if (!selected) return null;
+    if (!selected || !viewerId) return null;
 
     const attrs = selected.last?.attrs || {};
     const participants = Array.isArray(attrs?.participants)
@@ -686,14 +745,7 @@ useEffect(() => {
       participants.find((p: string) => p !== sellerId && p !== cajeroId) ||
       String(buyerActor.id);
 
-    const fromActorId =
-      mode === "buyer"
-        ? String(buyerActor.id)
-        : mode === "cajero"
-          ? String(activeCajero?.id || "")
-          : mode === "seller"
-            ? sellerId || "seller"
-            : String(activeCajero?.id || buyerId);
+    const fromActorId = viewerId;
 
     const targetCandidates = uniqueStrings(
       [buyerId, sellerId, cajeroId].filter(Boolean)
@@ -716,87 +768,99 @@ useEffect(() => {
     };
   };
 
-  const sendReplyLike = (text: string) => {
-    if (!selected) return;
-    const payloadText = String(text || "").trim();
+  const sendReplyLike = async (text: string) => {
+    if (!selected || replySending) return;
+    const payloadText = String(text || "").trim() || (referenceFiles.length ? "Te comparto estas referencias para el diseño." : "");
     if (!payloadText) return;
 
     const payload = buildReplyPayload(payloadText);
     if (!payload) return;
+    setReplySending(true);
+    setReplyError("");
+    try {
+    const attachments = await uploadConversationReferences(referenceFiles);
 
-    if (payload.isOrder) {
-      mtLiveUpsert({
-        id: newId("market.order.message:"),
-        kind: "market.order.message",
-        attrs: {
-          threadId: selected.threadId,
-          orderId: selected.orderId || payload.attrs?.orderId || null,
-          fromActorId: payload.fromActorId,
-          toActorId: payload.unreadBy[0] || null,
-          buyerId: payload.buyerId,
-          sellerId: payload.sellerId,
-          cajeroId: payload.cajeroId,
-          participants: payload.participants,
-          text: payloadText,
-          status: "sent",
-          unreadBy: payload.unreadBy,
-        },
-        traits: ["mt:chat", "mt:order.thread"],
-        meta: {
-          ns: "mt:market",
-          ts: nowIso(),
-          ttl_ms: 1000 * 60 * 60 * 24 * 7,
-          source: "ms:web:order:inbox",
-        },
-      } as any);
-    } else {
-      mtLiveUpsert({
-        id: newId("trade.message:"),
-        kind: "trade.message",
-        attrs: {
-          threadId: selected.threadId,
-          offerId: selected.offerId || payload.attrs?.offerId || null,
-          productoId: selected.productoId || payload.attrs?.productoId || null,
-          offerType: payload.attrs?.offerType || null,
-          fromActorId: payload.fromActorId,
-          toActorId: payload.unreadBy[0] || null,
-          sellerId: payload.sellerId,
-          buyerId: payload.buyerId,
-          cajeroId: payload.cajeroId,
-          participants: payload.participants,
-          text: payloadText,
-          actionKind: "trade.intent.message",
-          status: "sent",
-          unreadBy: payload.unreadBy,
-          author: payload.attrs?.author || null,
-          contact: payload.attrs?.contact || null,
-          vendor: payload.attrs?.vendor || null,
-          source: payload.attrs?.source || null,
-        },
-        traits: ["mt:chat", "mt:thread", "mt:notify.cajero"],
-        meta: {
-          ns: "mt:market",
-          ts: nowIso(),
-          ttl_ms: 1000 * 60 * 60 * 24 * 7,
-          source: "ms:web:trade:inbox",
-        },
-      } as any);
-    }
+    const kind = payload.isOrder ? "market.order.message" : "trade.message";
+    const actorName =
+      mode === "buyer"
+        ? buyerActor.name || "Comprador local"
+        : mode === "cajero"
+          ? activeCajero?.nombre || activeCajero?.name || "Cajero"
+          : selected.sellerName || "Participante";
+    const messageDV = buildThreadActionDV({
+      kind,
+      threadId: selected.threadId,
+      text: payloadText,
+      fromActorId: payload.fromActorId,
+      fromActorName: actorName,
+      toActorId: payload.unreadBy[0] || null,
+      participants: payload.participants,
+      responseToId: selected.last?.id || null,
+      chainId:
+        selected.last?.attrs?.chainId ||
+        selected.last?.attrs?.relation?.chainId ||
+        selected.last?.meta?.chainId ||
+        selected.threadId,
+      rootDvId:
+        selected.last?.attrs?.rootDvId ||
+        selected.last?.attrs?.relation?.rootDvId ||
+        selected.last?.meta?.rootDvId ||
+        selected.items?.[0]?.id ||
+        null,
+      parentDvId: selected.last?.id || null,
+      attrs: {
+        attachments,
+        designId: payload.attrs?.designId || null,
+        versionId: payload.attrs?.versionId || null,
+        workId: payload.attrs?.workId || null,
+        orderId: selected.orderId || payload.attrs?.orderId || null,
+        offerId: selected.offerId || payload.attrs?.offerId || null,
+        productoId: selected.productoId || payload.attrs?.productoId || null,
+        offerType: payload.attrs?.offerType || null,
+        buyerId: payload.buyerId,
+        sellerId: payload.sellerId,
+        cajeroId: payload.cajeroId,
+        author: payload.attrs?.author || null,
+        contact: payload.attrs?.contact || null,
+        vendor: payload.attrs?.vendor || null,
+        source: payload.attrs?.source || null,
+      },
+      traits: payload.isOrder
+        ? ["mt:chat", "mt:order.thread"]
+        : ["mt:chat", "mt:notify.cajero"],
+      meta: {
+        source: payload.isOrder
+          ? "ms:web:order:inbox"
+          : "ms:web:trade:inbox",
+      },
+    });
+    await publishOperationalEvent(messageDV);
 
     setDraft("");
+    setReferenceFiles([]);
+    } catch (error) {
+      setReplyError(error instanceof Error ? error.message : "No pudimos enviar tu mensaje. Probá otra vez.");
+    } finally { setReplySending(false); }
   };
 const publishOperationalEvent = async (dv: any) => {
-  mtLiveUpsert(dv);
-
   try {
-    await publishDatoVivo(dv);
+    await publishAuthorizedDV({
+      dv,
+      allLive: all,
+      activeActor: activeCajero,
+      action: dv?.kind,
+      actingAsNodeId: identity?.actingAsNodeId || null,
+      targetNodeId: dv?.attrs?.targetNodeId || null,
+    });
   } catch (err) {
     console.warn("[TradeInbox] No se pudo publicar evento operativo:", err);
+    throw err;
   }
 };
 
-const confirmAndCloseSale = async () => {
+const confirmReceived = async () => {
   if (!selected) return;
+  if (!["buyer", "requester"].includes(selected.operationState.role)) return;
 
   const attrs = selected.last?.attrs || {};
 
@@ -809,14 +873,8 @@ const confirmAndCloseSale = async () => {
     ].filter(Boolean)
   );
 
-  const fromActorId =
-    mode === "buyer"
-      ? String(buyerActor.id || "")
-      : mode === "cajero"
-        ? String(activeCajero?.id || selected.cajeroId || "")
-        : mode === "seller"
-          ? String(selected.sellerId || "")
-          : String(activeCajero?.id || selected.sellerId || buyerActor.id || "");
+  const fromActorId = viewerId;
+  if (!fromActorId) return;
 
   const unreadBy = participants.filter((x) => String(x) !== String(fromActorId));
 
@@ -832,7 +890,7 @@ const confirmAndCloseSale = async () => {
   const qty = Math.max(1, Number(qtyRaw || 1));
 
   const event = {
-    id: newId("market.order.event:"),
+    id: newId("delivery.received:"),
     kind: "market.order.event",
     attrs: {
       threadId: selected.threadId,
@@ -865,42 +923,163 @@ const confirmAndCloseSale = async () => {
       cantidad: qty,
 
       ok: true,
-      eventType: "sale.confirmed",
-      action: "confirm.close.sale",
-      status: "confirmed",
-      paymentStatus: "paid",
+      eventType: "delivery.received.confirmed",
+      action: "transaction.completed",
+      status: "completed",
+      state: "completed",
 
       fromActorId,
       toActorId: unreadBy[0] || null,
 
       buyerId: selected.buyerId || attrs?.buyerId || null,
       sellerId: selected.sellerId || attrs?.sellerId || null,
-      cajeroId: selected.cajeroId || attrs?.cajeroId || activeCajero?.id || null,
+      cajeroId: selected.cajeroId || attrs?.cajeroId || cajeroSurfaceId || null,
 
       participants,
       unreadBy,
 
-      text: "Venta confirmada ✅ Stock/oferta puede cerrarse.",
+      text: "Recepción confirmada",
     },
     traits: [
       "mt:order.event",
       "mt:market",
-      "mt:stock.confirmed",
-      "mt:sale.confirmed",
+      "delivery:received",
+      "consent:confirmed",
     ],
     meta: {
       ns: "mt:market",
       ts: nowIso(),
-      source: "ms:web:trade:confirm.close.sale",
-      status: "confirmed",
+      source: "ms:web:trade:confirm.received",
+      status: "completed",
     },
   };
 
   await publishOperationalEvent(event);
 };
+
+const requestSubscriptionAction = async (
+  kind: "subscription.pause.request" | "subscription.cancel.request",
+) => {
+  if (!selected) return;
+  const recurrence = selected.operationState.subscription;
+  const allowed =
+    kind === "subscription.pause.request"
+      ? recurrence.canPause
+      : recurrence.canCancel;
+  if (!allowed) return;
+  const replyIdentity = buildReplyPayload("");
+  if (!replyIdentity) return;
+  await publishOperationalEvent(
+    buildThreadActionDV({
+      kind,
+      threadId: selected.threadId,
+      chainId:
+        selected.last?.attrs?.chainId ||
+        selected.last?.meta?.chainId ||
+        selected.threadId,
+      rootDvId:
+        selected.last?.attrs?.rootDvId || selected.items?.[0]?.id || null,
+      parentDvId: recurrence.evidence.subscription?.id || selected.last?.id || null,
+      responseToId: recurrence.evidence.subscription?.id || null,
+      text:
+        kind === "subscription.pause.request"
+          ? "Solicito pausar el abastecimiento recurrente"
+          : "Solicito cancelar el abastecimiento recurrente",
+      fromActorId: replyIdentity.fromActorId,
+      fromActorName:
+        mode === "buyer"
+          ? buyerActor.name || "Comprador"
+          : activeCajero?.nombre || selected.sellerName || "Participante",
+      participants: replyIdentity.participants,
+      attrs: {
+        subscriptionId: recurrence.subscriptionId,
+        status: "requested",
+        security: {
+          requiresConsent: true,
+          automaticConfirmation: false,
+        },
+      },
+      traits: ["mt:subscription", "utopy:action.request", "consent:required"],
+    }),
+  );
+};
+
+const acceptSubscriptionProposal = async () => {
+  if (!selected) return;
+  const recurrence = selected.operationState.subscription;
+  if (!recurrence.canAccept || !recurrence.evidence.subscription) return;
+  const replyIdentity = buildReplyPayload("");
+  if (!replyIdentity) return;
+  const proposal = recurrence.evidence.subscription;
+  await publishSubscriptionDV(
+    buildSubscriptionEventDV("subscription.accepted", {
+      threadId: selected.threadId,
+      chainId:
+        proposal?.attrs?.chainId || proposal?.meta?.chainId || selected.threadId,
+      rootDvId:
+        proposal?.attrs?.rootDvId || proposal?.meta?.rootDvId || selected.items?.[0]?.id,
+      parentDvId: proposal.id || null,
+      subscriptionId: recurrence.subscriptionId,
+      orderId: proposal?.attrs?.orderId || selected.orderId,
+      actorId: replyIdentity.fromActorId,
+      actorName:
+        mode === "buyer"
+          ? buyerActor.name || "Comprador"
+          : activeCajero?.nombre || selected.sellerName || "Participante",
+      participants: replyIdentity.participants,
+      title: proposal?.attrs?.title || humanThreadTitle(selected, all),
+      frequency: proposal?.attrs?.frequency || null,
+      every: proposal?.attrs?.every || 1,
+      nextOccurrence: proposal?.attrs?.nextOccurrence || null,
+      authority: replyIdentity.fromActorId,
+    }),
+    {
+      allLive: all,
+      activeActor: activeCajero,
+      actingAsNodeId: identity?.actingAsNodeId || null,
+    },
+  );
+};
+
+const requestAutopayRevoke = async () => {
+  if (!selected) return;
+  const recurrence = selected.operationState.subscription;
+  if (!recurrence.autopay.canRevoke || recurrence.autopay.pendingRevoke) return;
+  const replyIdentity = buildReplyPayload("");
+  if (!replyIdentity) return;
+  await publishSubscriptionDV(
+    buildAutopayRevokeRequestDV({
+      threadId: selected.threadId,
+      chainId:
+        selected.last?.attrs?.chainId ||
+        selected.last?.meta?.chainId ||
+        selected.threadId,
+      rootDvId:
+        selected.last?.attrs?.rootDvId || selected.items?.[0]?.id || null,
+      parentDvId:
+        recurrence.evidence.autopayAuthorization?.id || selected.last?.id || null,
+      subscriptionId: recurrence.subscriptionId,
+      authorizationId: recurrence.autopay.authorizationId,
+      actorId: replyIdentity.fromActorId,
+      actorName:
+        mode === "buyer"
+          ? buyerActor.name || "Comprador"
+          : activeCajero?.nombre || selected.sellerName || "Participante",
+      buyerId: selected.buyerId,
+      sellerId: selected.sellerId,
+      participants: replyIdentity.participants,
+      reason: "Solicitado desde el Hilo Vivo",
+    }),
+    {
+      allLive: all,
+      activeActor: activeCajero,
+      actingAsNodeId: identity?.actingAsNodeId || null,
+    },
+  );
+};
   return (
-    <Box>
-      <Header>
+    <Box $fullScreen={fullScreen}>
+      {!fullScreen ? <Header>
         <TitleWrap>
           <Title>
             <MessageCircle size={16} />
@@ -908,7 +1087,7 @@ const confirmAndCloseSale = async () => {
           </Title>
           <Subtle>{filteredThreads.length} hilo(s) vivos</Subtle>
         </TitleWrap>
-      </Header>
+      </Header> : null}
 
       <Grid>
       {!focusThreadOnly && (
@@ -931,7 +1110,7 @@ const confirmAndCloseSale = async () => {
             >
               <Row>
                 <div style={{ fontWeight: 950 }}>
-                  {humanThreadTitle(t)}
+                  {humanThreadTitle(t, all)}
                   {t.unread > 0 ? <Dot /> : null}
                 </div>
 
@@ -948,11 +1127,7 @@ const confirmAndCloseSale = async () => {
                         : "neutral"
                   }
                 >
-                  {t.kind === "order"
-                    ? "Pedido"
-                    : t.kind === "design"
-                      ? "Diseño"
-                      : "Oferta"}
+                  {threadKindLabel(t.kind)}
                 </Badge>
 
                 <Badge tone={t.state.tone}>{t.state.label}</Badge>
@@ -980,10 +1155,11 @@ const confirmAndCloseSale = async () => {
             </PanelCard>
           ) : (
             <>
-              <SummaryCard>
+              {fullScreen ? <QuickBtn onClick={() => setShowConversationDetails((visible) => !visible)}>{showConversationDetails ? "Ocultar detalles" : "Ver operación"}</QuickBtn> : null}
+              {(!fullScreen || showConversationDetails) ? <><SummaryCard>
                 <Row>
                   <div style={{ fontWeight: 950 }}>
-  {humanThreadTitle(selected)}
+   {humanThreadTitle(selected, all)}
 </div>
                   <Badge tone={selected.state.tone}>
                     {selected.state.label}
@@ -1001,6 +1177,10 @@ const confirmAndCloseSale = async () => {
                       <Wand2 size={12} style={{ marginRight: 4 }} />
                       Diseño
                     </Badge>
+                  ) : selected.kind === "work" ? (
+                    <Badge tone="info">🛠 Trabajo</Badge>
+                  ) : selected.kind === "subscription" ? (
+                    <Badge tone="info">🔁 Recurrencia</Badge>
                   ) : (
                     <Badge tone="neutral">
                       <Megaphone size={12} style={{ marginRight: 4 }} />
@@ -1056,104 +1236,227 @@ const confirmAndCloseSale = async () => {
               </SummaryCard>
 
               <QuickActions>
-                <QuickBtn onClick={() => sendReplyLike("Voy en camino 🚚")}>
-                  <Truck size={14} />
-                  Voy en camino
-                </QuickBtn>
-                <QuickBtn onClick={() => sendReplyLike("Reservado por ahora 🕒")}>
-                  <Archive size={14} />
-                  Reservado
-                </QuickBtn>
-                <QuickBtn onClick={() => sendReplyLike("Listo para retirar 📦")}>
-                  <Package2 size={14} />
-                  Listo para retirar
-                </QuickBtn>
-                <QuickBtn onClick={() => sendReplyLike("Entregado ✅")}>
-                  <CheckCircle2 size={14} />
-                  Entregado
-                </QuickBtn>
-               <QuickBtn onClick={() => sendReplyLike("La oferta quedó completada ✅")}>
-  <CheckCircle2 size={14} />
-  Mensaje: oferta completada
-</QuickBtn>
-
-<QuickBtn onClick={confirmAndCloseSale}>
-  <CheckCircle2 size={14} />
-  Confirmar y cerrar venta
-</QuickBtn>
                 <QuickBtn
-                  onClick={() =>
-                    sendReplyLike("El débito automático fue cancelado ⛔")
-                  }
+                  disabled={!selected.operationState.primaryEnabled}
+                  onClick={() => {
+                    const action = selected.operationState.primaryAction;
+                    if (action === "confirm_received") void confirmReceived();
+                    else if (action === "talk") composerRef.current?.focus();
+                    else if (action === "manage_recurrence") setDetailsOpen(true);
+                    else setDetailsOpen(true);
+                  }}
                 >
-                  <Archive size={14} />
-                  Cancelar suscripción
+                  <CheckCircle2 size={14} />
+                  {selected.operationState.primaryLabel}
                 </QuickBtn>
-              </QuickActions>
+                <details>
+                  <summary style={{ cursor: "pointer", padding: "8px 10px", fontWeight: 950 }}>•••</summary>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+                    <QuickBtn onClick={() => setNewNeedMode("choose")}>
+                      <Megaphone size={14} />Necesito algo más
+                    </QuickBtn>
+                    <QuickBtn onClick={() => setDetailsOpen((value) => !value)}>
+                      Ver detalles
+                    </QuickBtn>
+                    {selected.operationState.subscription.canPause ? (
+                      <QuickBtn
+                        onClick={() =>
+                          void requestSubscriptionAction("subscription.pause.request")
+                        }
+                      >
+                        Pausar recurrencia
+                      </QuickBtn>
+                    ) : null}
+                    {selected.operationState.subscription.canCancel ? (
+                      <QuickBtn
+                        onClick={() =>
+                          void requestSubscriptionAction("subscription.cancel.request")
+                        }
+                      >
+                        Cancelar recurrencia
+                      </QuickBtn>
+                    ) : null}
+                    {selected.operationState.subscription.autopay.canRevoke ? (
+                      <QuickBtn
+                        disabled={
+                          selected.operationState.subscription.autopay.pendingRevoke
+                        }
+                        onClick={() => void requestAutopayRevoke()}
+                      >
+                        {selected.operationState.subscription.autopay.pendingRevoke
+                          ? "Desactivación solicitada"
+                          : "Desactivar débito automático"}
+                      </QuickBtn>
+                    ) : null}
+                  </div>
+                </details>
+              </QuickActions></> : null}
+
+              {detailsOpen ? (
+                <PanelCard>
+                  <div style={{ fontWeight: 900, marginBottom: 6 }}>Detalles</div>
+                  <Subtle>Estado: {selected.operationState.label}</Subtle>
+                  <Subtle>Tu rol: {selected.operationState.role}</Subtle>
+                  {selected.operationState.subscription.exists ? (
+                    <Subtle>
+                      Recurrencia: {selected.operationState.subscription.status}
+                    </Subtle>
+                  ) : null}
+                  {selected.operationState.subscription.canAccept ? (
+                    <QuickBtn
+                      style={{ marginTop: 8 }}
+                      onClick={() => void acceptSubscriptionProposal()}
+                    >
+                      Aceptar suministro recurrente
+                    </QuickBtn>
+                  ) : null}
+                  {selected.operationState.subscription.autopay.status === "active" ? (
+                    <Subtle>Pago automático: activo</Subtle>
+                  ) : selected.operationState.subscription.autopay.status === "revoked" ? (
+                    <Subtle>Pago automático: desactivado</Subtle>
+                  ) : selected.operationState.subscription.status === "active" ? (
+                    <>
+                      <Subtle>Pago: manual, sin débito automático</Subtle>
+                      {selected.sellerId ? (
+                        <QuickBtn
+                          style={{ marginTop: 8 }}
+                          onClick={() => setAutopayPanelOpen(true)}
+                        >
+                          Solicitar pago automático
+                        </QuickBtn>
+                      ) : null}
+                    </>
+                  ) : null}
+                  {import.meta.env.DEV && !simple ? (
+                    <Subtle>
+                      threadId: {selected.threadId} · chainId:{" "}
+                      {selected.last?.attrs?.chainId || selected.last?.meta?.chainId || "—"}
+                    </Subtle>
+                  ) : null}
+                </PanelCard>
+              ) : null}
+
+              {newNeedMode === "choose" ? (
+                <PanelCard>
+                  <div style={{ fontWeight: 900 }}>¿Qué necesitás ahora?</div>
+                  <Subtle style={{ marginTop: 4 }}>
+                    Elegí si pertenece a esta operación o si es una necesidad nueva.
+                  </Subtle>
+                  <QuickActions style={{ marginTop: 10 }}>
+                    <QuickBtn onClick={() => setNewNeedMode("same")}>
+                      Continuar con esta operación
+                    </QuickBtn>
+                    <QuickBtn onClick={() => setNewNeedMode("new")}>
+                      Nueva necesidad
+                    </QuickBtn>
+                  </QuickActions>
+                </PanelCard>
+              ) : null}
+
+              {newNeedMode === "same" || newNeedMode === "new" ? (
+                <SignalComposer
+                  actorId={
+                    viewerId
+                  }
+                  actorName={
+                    mode === "buyer"
+                      ? buyerActor.name || "Vos"
+                      : activeCajero?.nombre || selected.sellerName || "Participante"
+                  }
+                  nodeId={identity?.actingAsNodeId || null}
+                  threadId={newNeedMode === "same" ? selected.threadId : null}
+                  chainId={
+                    newNeedMode === "same"
+                      ? selected.last?.attrs?.chainId ||
+                        selected.last?.meta?.chainId ||
+                        selected.threadId
+                      : null
+                  }
+                  sourceDV={newNeedMode === "same" ? selected.last : null}
+                  allLive={all}
+                  activeActor={activeCajero}
+                  relatedToThreadId={
+                    newNeedMode === "new" ? selected.threadId : null
+                  }
+                  previousChainId={
+                    newNeedMode === "new"
+                      ? selected.last?.attrs?.chainId ||
+                        selected.last?.meta?.chainId ||
+                        selected.threadId
+                      : null
+                  }
+                  initialMode="need"
+                  initialCategory="other"
+                  compact
+                  onPublished={() => setNewNeedMode(null)}
+                  onClose={() => setNewNeedMode(null)}
+                />
+              ) : null}
+
+              {selected.sellerId ? (
+                <SubscriptionPanel
+                  open={autopayPanelOpen}
+                  onClose={() => setAutopayPanelOpen(false)}
+                  sellerId={selected.sellerId}
+                  sellerName={selected.sellerName}
+                  threadId={selected.threadId}
+                  chainId={
+                    selected.last?.attrs?.chainId ||
+                    selected.last?.meta?.chainId ||
+                    selected.threadId
+                  }
+                  rootDvId={
+                    selected.last?.attrs?.rootDvId || selected.items?.[0]?.id || null
+                  }
+                  subscriptionId={
+                    selected.operationState.subscription.subscriptionId
+                  }
+                  suggestAmount={Number(selected.total || 0)}
+                  allLive={all}
+                />
+              ) : null}
 
               <PanelCard>
                 <Row style={{ marginBottom: 8 }}>
-                  <div
-                    style={{
-                      fontWeight: 900,
-                      wordBreak: "break-all",
-                      maxWidth: "100%",
-                      overflowWrap: "anywhere",
-                    }}
-                  >
-                    {selected.threadId}
-                  </div>
-                  <Subtle>{selected.items.length} mensaje(s)</Subtle>
+                  <div style={{ fontWeight: 900 }}>Historia</div>
                 </Row>
 
-                <MsgList>
+                <MsgList $fullScreen={fullScreen}>
                   {selected.items.map((m: any) => {
                     const mine =
-                      safeStr(m?.attrs?.fromActorId) === String(viewerId);
-
-                  const rawActor =
-  safeStr(m?.attrs?.actorName) ||
-  safeStr(m?.attrs?.author?.name) ||
-  safeStr(m?.attrs?.targetAuthor?.name) ||
-  safeStr(m?.attrs?.fromActorId || "");
-
-const label = rawActor
-  ? humanActorName(rawActor, mine ? "Yo" : "Participante")
-  : mine
-    ? "Yo"
-    : "Participante";
-
-const body = getLastPreviewText(m);
-const step = getStepLabel(m);
+                      safeStr(m?.attrs?.fromActorId || m?.attrs?.actorId) ===
+                      viewerId;
+                    const label = resolveHumanActorName(
+                      m,
+                      viewerId,
+                      all,
+                    );
+                    const body = getLastPreviewText(m);
+                    const step = getStepLabel(m);
+                    const variant = messageVariant(m, mine);
+                    const compactEvent = variant === "system" || variant === "state";
 
                     return (
-                      <Msg key={m.id} mine={mine}>
-                        <div style={{ marginBottom: 2 }}>
-  <Badge tone={mine ? "ok" : "neutral"}>{step}</Badge>
-</div>
-                        <Row>
-                          <div style={{ fontWeight: 900 }}>{label}</div>
-                          <Subtle>{safeStr(m?.meta?.ts || "")}</Subtle>
-                        </Row>
-
-                        <div>{body}</div>
-
-                        {m?.kind === "mt.demand" ? (
-                          <div style={{ marginBottom: 6 }}>
-                            <Badge tone="info">Pedido de variante</Badge>
+                      <Msg key={m.id} $variant={variant}>
+                        {compactEvent ? (
+                          <div style={{ fontWeight: 850 }}>
+                            {variant === "system" ? "✨ " : ""}
+                            {step}
                           </div>
-                        ) : null}
+                        ) : (
+                          <Row>
+                            <div style={{ fontWeight: 900 }}>{label}</div>
+                            <Subtle>{formatHumanThreadTime(m)}</Subtle>
+                          </Row>
+                        )}
 
-                        {m?.kind === "mt.consult" ? (
-                          <div style={{ marginBottom: 6 }}>
-                            <Badge tone="info">Consulta</Badge>
-                          </div>
-                        ) : null}
+                        {body && body !== step ? <div>{body}</div> : null}
+                        {Array.isArray(m?.attrs?.attachments) ? <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 8, marginTop: 8 }}>{m.attrs.attachments.filter((attachment: any) => typeof attachment.url === "string" && /^https?:\/\//i.test(attachment.url) && /^image\//i.test(attachment.mime || "")).map((attachment: any, index: number) => <a key={`${attachment.url}:${index}`} href={attachment.url} target="_blank" rel="noopener noreferrer" style={{ overflow: "hidden", borderRadius: 14, textDecoration: "none", color: "inherit", background: "rgba(255,255,255,.7)" }}><img src={attachment.url} alt={attachment.name || "Referencia del diseño"} loading="lazy" style={{ width: "100%", height: 160, objectFit: "cover" }}/><small style={{ display: "block", padding: 7 }}>Referencia del diseño · ver foto ↗</small></a>)}</div> : null}
 
-                        {m?.kind === "mt.consult.answer" ? (
-                          <div style={{ marginBottom: 6 }}>
-                            <Badge tone="ok">Respuesta de consulta</Badge>
-                          </div>
+                        {compactEvent ? (
+                          <Subtle style={{ textAlign: "center" }}>
+                            {formatHumanThreadTime(m)}
+                          </Subtle>
                         ) : null}
 
                         {m?.kind === "sale.receipt" ? (
@@ -1174,45 +1477,28 @@ const step = getStepLabel(m);
                           </div>
                         ) : null}
 
-                        {(m?.kind === "market.order.event" ||
-                          m?.attrs?.ok != null) && (
-                          <div>
-                            <Badge
-                              tone={
-                                m?.attrs?.ok === true
-                                  ? "ok"
-                                  : m?.attrs?.ok === false
-                                    ? "warn"
-                                    : "neutral"
-                              }
-                            >
-                              {m?.attrs?.ok === true
-                                ? "OK"
-                                : m?.attrs?.ok === false
-                                  ? "NOK"
-                                  : "Evento"}
-                            </Badge>
-                          </div>
-                        )}
                       </Msg>
                     );
                   })}
                 </MsgList>
               </PanelCard>
 
-              <ComposerCard>
+              <ComposerCard $fullScreen={fullScreen}>
+                <ConversationReferences files={referenceFiles} onChange={setReferenceFiles} disabled={replySending}/>
                 <TextArea
+                  ref={composerRef}
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   placeholder="Responder en este hilo..."
                 />
 
                 <BtnRow>
-                  <Btn kind="solid" onClick={() => sendReplyLike(draft)}>
+                  <Btn kind="solid" disabled={replySending || (!draft.trim() && !referenceFiles.length)} onClick={() => sendReplyLike(draft)}>
                     <Send size={15} />
-                    Enviar respuesta
+                    {replySending ? "Enviando…" : "Enviar respuesta"}
                   </Btn>
                 </BtnRow>
+                {replyError ? <small role="alert">{replyError}</small> : null}
               </ComposerCard>
             </>
           )}

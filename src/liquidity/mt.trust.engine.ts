@@ -67,13 +67,13 @@ export function trustDeltaFromSignal(signalType: TrustSignalType, weight = 0.5) 
   if (signalType === "payment.completed") return 0.03 * w;
   if (signalType === "escrow.released") return 0.06 * w;
   if (signalType === "work.fulfilled") return 0.08 * w;
-  if (signalType === "fiscal.valid") return 0.04 * w;
+  // Legacy fiscal claims are not evidence of DNIT acceptance or reputation.
+  if (signalType === "fiscal.valid" || signalType === "fiscal.invalid") return 0;
   if (signalType === "governance.approved") return 0.04 * w;
 
   if (signalType === "payment.failed") return -0.06 * w;
   if (signalType === "escrow.refunded") return -0.05 * w;
   if (signalType === "work.disputed") return -0.08 * w;
-  if (signalType === "fiscal.invalid") return -0.1 * w;
   if (signalType === "governance.rejected") return -0.06 * w;
 
   return 0;

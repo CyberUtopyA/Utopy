@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {transformWithEsbuild} from 'vite';
+const files=['src/utopy/adminReceipt.ts','src/utopy/businessWorkspace.ts','src/booking/adminClient.ts','src/booking/client.ts','src/components/RemoteNodeInvitation.tsx','src/components/NodeAdminDelegation.tsx','src/pages/AcceptNodeInvitation.tsx','src/pages/BusinessWorkspace.tsx','src/pages/LuaPage.tsx','src/App.jsx'];
+for(const file of files)await transformWithEsbuild(readFileSync(file,'utf8'),file,{loader:file.endsWith('.jsx')?'jsx':'tsx'});
+const page=readFileSync('src/pages/AcceptNodeInvitation.tsx','utf8'),client=readFileSync('src/booking/adminClient.ts','utf8');
+await transformWithEsbuild(readFileSync('src/components/NodeManifestDownload.tsx','utf8'),'src/components/NodeManifestDownload.tsx',{loader:'tsx'});
+assert.match(page,/window.location.hash/);assert.match(page,/window.history.replaceState/);assert.match(page,/Aceptar y gestionar/);assert.doesNotMatch(page,/localStorage|sessionStorage/);
+assert.match(client,/tokenHash/);assert.doesNotMatch(client,/localStorage|sessionStorage/);assert.match(client,/referrerPolicy:'no-referrer'/);
+assert.match(readFileSync('src/components/RemoteNodeInvitation.tsx','utf8'),/window.confirm/);
+assert.match(readFileSync('src/utopy/adminReceipt.ts','utf8'),/verifyNodeManifestDV/);assert.match(readFileSync('src/utopy/adminReceipt.ts','utf8'),/verifyEnvelopeSignature/);
+assert.match(readFileSync('src/utopy/businessWorkspace.ts','utf8'),/verifyAdminReceipt/);
+assert.match(readFileSync('src/pages/BusinessWorkspace.tsx','utf8'),/refreshRemoteAdmin/);
+assert.match(readFileSync('src/App.jsx','utf8'),/path="\/invitacion"/);
+console.log('OK: UI syntax, private fragment link, explicit acceptance/revocation, existing profile signup, constrained signed receipts and existing admin panel. Browser flow/hosting not exercised.');

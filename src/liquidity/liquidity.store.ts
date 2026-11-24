@@ -74,7 +74,9 @@ export const useLiquidityStore = create<LiquidityStoreState>((set, get) => ({
 
   upsertDV: (dv) => {
     set((s) => {
-      const newDvs = [...s.dvs, dv];
+      const map = new Map(s.dvs.map((item) => [String(item.id), item]));
+      map.set(String(dv.id), dv);
+      const newDvs = Array.from(map.values());
       return {
         dvs: newDvs,
         index: rebuildIndex(newDvs),
@@ -84,7 +86,11 @@ export const useLiquidityStore = create<LiquidityStoreState>((set, get) => ({
 
   upsertMany: (dvs) => {
     set((s) => {
-      const newDvs = [...s.dvs, ...dvs];
+      const map = new Map(s.dvs.map((item) => [String(item.id), item]));
+      for (const dv of dvs) {
+        if (dv?.id) map.set(String(dv.id), dv);
+      }
+      const newDvs = Array.from(map.values());
       return {
         dvs: newDvs,
         index: rebuildIndex(newDvs),
@@ -203,7 +209,14 @@ function rebuildIndex(dvs: DVLike[]): Indices {
     const actors = getActorIdsForDV(dv);
     const currency = getLiquidityCurrency(dv);
     const threadId = getLiquidityThreadId(dv);
-    const escrowStatus = dv.kind === "liq.escrow.open" ? "open" : dv.kind === "liq.escrow.release" ? "released" : "refunded";
+    const escrowStatus =
+      dv.kind === "liq.escrow.open"
+        ? "open"
+        : dv.kind === "liq.escrow.release"
+          ? "released"
+          : dv.kind === "liq.escrow.refund"
+            ? "refunded"
+            : null;
 
     if (escrowStatus) {
       if (!byEscrowStatus[escrowStatus]) byEscrowStatus[escrowStatus] = [];

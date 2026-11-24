@@ -1,0 +1,27 @@
+{
+  "documentId": "sifen-test:first-simple:replace-with-unique-id",
+  "revision": 1,
+  "issuerNodeId": "replace-with-authorized-issuer-node-id",
+  "authority": "replace-with-authorized-issuer-node-id",
+  "buyerRef": "replace-with-private-receiver-ref",
+  "issuedAt": "2026-09-13T12:00:00-03:00",
+  "currency": "PYG",
+  "commercialCondition": { "type": "cash", "paymentMethod": "1" },
+  "lines": [
+    {
+      "lineId": "test-product-1",
+      "type": "product",
+      "description": "Producto de prueba sin valor comercial ni fiscal",
+      "quantity": "1",
+      "unitPrice": "1000",
+      "total": "1000",
+      "unitCode": "77",
+      "tax": { "affectation": "1", "proportion": "100", "rate": "10" }
+    }
+  ],
+  "totals": { "total": "1000" },
+  "sourceRefs": [],
+  "paymentRefs": [],
+  "simulation": true,
+  "nonTradable": true
+}

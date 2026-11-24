@@ -3,11 +3,26 @@ import type { CanonicalFalconItem } from "./falconcurator";
 export type FalconSectionKey = "store" | "daily" | "capital" | "skylines";
 
 export type FalconDailyCategory =
+  | "salados"
+  | "bebidas-calientes"
+  | "bebidas-frias"
+  | "dulces"
+  | "verduras"
   | "comida"
   | "super"
   | "farmacia"
   | "combos"
   | "recurrente";
+
+export function classifyDailySubcategory(item: Parameters<typeof classifyDailyCategory>[0]): FalconDailyCategory {
+  const text = signalText(item).normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  if (/verdura|hortaliza|tomate|lechuga|zanahoria|cosecha|fruta/.test(text)) return "verduras";
+  if (/frappe|frappuccino|iced|bebida fria|jugo|smoothie|gaseosa|limonada/.test(text)) return "bebidas-frias";
+  if (/cafe|coffee|cappuccino|espresso|bebida caliente|chocolate caliente|infusion/.test(text)) return "bebidas-calientes";
+  if (/postre|dulce|doce|torta|pastel|helado|brownie/.test(text)) return "dulces";
+  if (/empanada|salado|salgado|pizza|sandwich|hamburguesa/.test(text)) return "salados";
+  return classifyDailyCategory(item);
+}
 
 export type FalconCapitalCategory =
   | "renta"

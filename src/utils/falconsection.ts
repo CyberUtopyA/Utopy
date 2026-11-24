@@ -46,6 +46,16 @@ export const FALCON_SECTIONS: FalconSection[] = [
         label: "Tecnología",
         description: "Electrónica y gadgets más vendidos.",
       },
+      {
+        id: "accesorios",
+        label: "Accesorios",
+        description: "Joyas, piezas y detalles para llevar.",
+      },
+      {
+        id: "ropa",
+        label: "Ropa",
+        description: "Moda y prendas de la red viva.",
+      },
     ],
   },
   {
@@ -89,6 +99,12 @@ export const FALCON_SECTIONS: FalconSection[] = [
     path: "/daily",
     subtitle: "Comida, super, farmacia y vida diaria",
     categories: [
+      { id: "destacados", label: "Todo", description: "Lo disponible en la red." },
+      { id: "salados", label: "Salados", description: "Empanadas y comidas para compartir." },
+      { id: "bebidas-calientes", label: "Café e infusiones", description: "Bebidas calientes." },
+      { id: "bebidas-frias", label: "Bebidas frías", description: "Jugos, frappés y refrescos." },
+      { id: "dulces", label: "Dulces", description: "Postres y pastelería." },
+      { id: "verduras", label: "Frutas y verduras", description: "Cosechas y productos frescos." },
       {
         id: "comida",
         label: "Comida",
@@ -123,14 +139,15 @@ export const FALCON_SECTIONS: FalconSection[] = [
     path: "/capital",
     subtitle: "Inversión, negocios y oportunidades",
     categories: [
+      { id: "destacados", label: "Todo", description: "Oportunidades publicadas." },
       {
-        id: "yield",
-        label: "Rental Yield",
+        id: "renta",
+        label: "Rentas",
         description: "Rentas y retornos potenciales.",
       },
       {
-        id: "inversion",
-        label: "Inversión",
+        id: "activos",
+        label: "Activos",
         description: "Activos estratégicos y propiedades.",
       },
       {
@@ -139,14 +156,14 @@ export const FALCON_SECTIONS: FalconSection[] = [
         description: "Locales, franquicias y alianzas.",
       },
       {
-        id: "partners",
-        label: "Partners",
+        id: "extranjero",
+        label: "Internacional",
         description: "Socios y empresarios.",
       },
       {
-        id: "premium",
-        label: "Premium",
-        description: "Oportunidades destacadas de alto ticket.",
+        id: "territorios",
+        label: "Territorios",
+        description: "Proyectos y oportunidades territoriales.",
       },
     ],
   },

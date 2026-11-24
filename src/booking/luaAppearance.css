@@ -1,0 +1,29 @@
+/* Brand-locked palette: OS dark mode must not invert native fields or the spa UI. */
+.lua-direct,.living-booking[data-preset="lua-editorial-spa"]{color-scheme:only light;--lb-bg:#fbf8f3;--lb-card:#fffaf5;--lb-ink:#392c28;--lb-accent:#76533c;background:#fbf8f3;color:#392c28}
+.lua-direct,.living-booking.ub-workspace[data-preset="lua-editorial-spa"]{min-height:100dvh}
+.living-booking[data-preset="lua-editorial-spa"][data-view="home"] .lb-editorial-line{display:none}
+.living-booking[data-preset="lua-editorial-spa"] .lb-hero-copy{padding-top:32px;padding-bottom:32px}
+.living-booking[data-preset="lua-editorial-spa"] .lb-hero h1{color:#fffaf5;text-shadow:0 1px 4px #22180f66}
+.living-booking[data-preset="lua-editorial-spa"] .lb-hero:after{background:linear-gradient(180deg,transparent 20%,#3020194d 45%,#302019cc 100%)}
+.living-booking[data-preset="lua-editorial-spa"] .lb-primary{background:#76533c;color:#fffaf5;border:1px solid #76533c;box-shadow:none}
+.living-booking[data-preset="lua-editorial-spa"] .lb-hero .lb-primary{background:#76533c;color:#fffaf5;backdrop-filter:none}
+.living-booking[data-preset="lua-editorial-spa"] :is(input,select,textarea){color-scheme:only light;background:#fffdfa;color:#392c28;border:1px solid #a79787;accent-color:#76533c}
+.living-booking[data-preset="lua-editorial-spa"] :is(input,textarea)::placeholder{color:#6a5848;opacity:1}
+.living-booking[data-preset="lua-editorial-spa"] :is(.uif-card,.lb-service,.lb-calendar,.lb-time-panel,.lb-appointment,.lb-confirm-body,.lb-resource-schedule){background:#fffaf5;color:#392c28;border-color:#dfd1c2}
+.living-booking[data-preset="lua-editorial-spa"] :is(.uif-card-toggle,.lb-month,.lb-calendar h2,.lb-confirm h1){color:#392c28}
+.living-booking[data-preset="lua-editorial-spa"] :is(.lb-weekdays,.lb-service-category,.lb-entry-brand small,.lb-entry-help,.lb-saved-block summary small,.lb-resource-schedule>summary small){color:#6a5848}
+.living-booking[data-preset="lua-editorial-spa"] .lb-readiness{background:#efe6da;color:#624e3c}
+.living-booking[data-preset="lua-editorial-spa"] .lb-categories button{background:#fffdfa;color:#392c28;border-color:#cbb8a4}
+.living-booking[data-preset="lua-editorial-spa"] .lb-categories [aria-pressed=true],.living-booking[data-preset="lua-editorial-spa"] .lb-slots [aria-pressed=true],.living-booking[data-preset="lua-editorial-spa"] .lb-days button[aria-pressed=true]{background:#76533c;color:#fffaf5;border-color:#76533c}
+.living-booking[data-preset="lua-editorial-spa"] .lb-bottom{background:#fbf8f3;border-color:#dfd1c2}
+.living-booking[data-preset="lua-editorial-spa"] .lb-bottom button{background:transparent;color:#392c28}
+.living-booking[data-preset="lua-editorial-spa"] .lb-bottom [aria-current=page]{background:#76533c;color:#fffaf5}
+.living-booking[data-preset="lua-editorial-spa"] .lb-menu{background:#fffaf5;color:#392c28}
+.living-booking[data-preset="lua-editorial-spa"] .lb-menu :is(a,button){color:#392c28}
+.living-booking.lb-manager[data-preset="lua-editorial-spa"] fieldset{background:#fffaf5;color:#392c28}
+.living-booking.lb-manager[data-preset="lua-editorial-spa"] .lb-manager-body{background:transparent;opacity:1}
+.living-booking[data-preset="lua-editorial-spa"] .ui-identity-flow{color:#392c28}
+.living-booking[data-preset="lua-editorial-spa"] .lb-entry-actions>a,.living-booking[data-preset="lua-editorial-spa"] .lb-entry-actions>details>summary{color:#624e3c;background:#fffaf5}
+.lua-direct>footer{color:#624e3c;background:#fbf8f3}
+@media(max-width:480px){.living-booking[data-preset="lua-editorial-spa"] .lb-hero-copy{padding:24px}.living-booking[data-preset="lua-editorial-spa"] .lb-hero h1{font-size:clamp(32px,9vw,44px)}}
+@media(prefers-reduced-motion:reduce){.living-booking[data-preset="lua-editorial-spa"] *{animation:none!important;transition:none!important}}

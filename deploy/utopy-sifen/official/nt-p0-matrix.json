@@ -1,0 +1,7 @@
+{
+  "scope": "P0",
+  "entries": [
+    {"nt":"001-027","rule":"Factura electrónica PYG contado con IVA explícito; producto/servicio/mixto","module":"src/fiscal/mapper.mjs","applied":false,"test":"tests/mapper.test.mjs","note":"Revisión normativa individual pendiente; no se declara conformidad."}
+  ],
+  "unreviewed": 1
+}

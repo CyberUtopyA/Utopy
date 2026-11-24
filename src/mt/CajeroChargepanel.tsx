@@ -67,7 +67,9 @@ function isOffer(d: AnyDV) {
 }
 
 function isOutcome(d: AnyDV) {
-  return safeStr(d?.kind) === "payment.outcome";
+  return safeStr(d?.kind) === "payment.outcome" &&
+    Boolean(d?.meta?.ownership?.signature?.value) &&
+    safeStr(d?.meta?.authority) === safeStr(d?.attrs?.actingAsNodeId);
 }
 
 function isAccept(d: AnyDV) {
@@ -332,6 +334,9 @@ export default function CajeroChargesPanel({
         acceptId: safeStr(accept?.id || "") || null,
         ns,
         source: "ms.cajero.panel.outcome.paid",
+        allLive: all,
+        activeActor: { id: sellerId, actorId: sellerId, name: sellerName },
+        actingAsNodeId: sellerId,
       });
 
       setMsg("Pago marcado como pagado ✅");
@@ -363,6 +368,9 @@ export default function CajeroChargesPanel({
         note: "Marcado para revisión manual",
         ns,
         source: "ms.cajero.panel.outcome.review",
+        allLive: all,
+        activeActor: { id: sellerId, actorId: sellerId, name: sellerName },
+        actingAsNodeId: sellerId,
       });
       const sessionId =
   item.sessionId ||
@@ -432,6 +440,9 @@ if (sessionId) {
         note: "Pago rechazado desde cajero",
         ns,
         source: "ms.cajero.panel.outcome.rejected",
+        allLive: all,
+        activeActor: { id: sellerId, actorId: sellerId, name: sellerName },
+        actingAsNodeId: sellerId,
       });
       const sessionId =
   item.sessionId ||
@@ -505,6 +516,9 @@ if (sessionId) {
           note: "Nueva propuesta emitida por cajero",
           ns,
           source: "ms.cajero.panel.outcome.scheduled",
+          allLive: all,
+          activeActor: { id: sellerId, actorId: sellerId, name: sellerName },
+          actingAsNodeId: sellerId,
         });
       }
 
@@ -552,7 +566,7 @@ if (sessionId) {
                       <Clock3 size={13} />
                       Due: {formatWhen(item.dueTs)}
                     </Sub>
-                    {item.threadId && <Sub>thread: {item.threadId}</Sub>}
+                    {import.meta.env.DEV && item.threadId && <Sub>thread: {item.threadId}</Sub>}
                     {item.orderId && <Sub>order: {item.orderId}</Sub>}
                     {item.mandateId && <Sub>mandate: {item.mandateId}</Sub>}
                   </Main>

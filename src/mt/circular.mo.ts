@@ -1,5 +1,4 @@
 import { mtLiveUpsert } from "./mt.liveStore";
-import { setNamespaceTag } from "../pushtags";
 
 function uid(prefix = "id") {
   return `${prefix}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
@@ -240,12 +239,6 @@ export async function sendCircularToMO(input: SendCircularToMOInput) {
       say: "action.run",
       payload: actionMsg,
     });
-  }
-
-  try {
-    await setNamespaceTag(ns || "mt:market");
-  } catch {
-    // noop
   }
 
   return {

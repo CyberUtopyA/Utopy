@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+const read = path => readFileSync(new URL('../' + path, import.meta.url), 'utf8');
+const vault = read('src/vault/BovedaVivaPanel.tsx');
+const identity = read('src/components/livingIdentity.css');
+const ui = read('src/components/utopyUI.css');
+assert.match(vault, /const ValueNav = styled.nav`display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+assert.match(vault, /Tu actividad de valor/);
+assert.match(identity, /max-height:calc\(100dvh - 24px - env\(safe-area-inset-bottom/);
+assert.match(identity, /scrollbar-gutter:stable/);
+assert.match(ui, /\.utopy-tabs\{flex-wrap:wrap;overflow:visible\}/);
+assert.match(ui, /grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+console.log('OK: responsive layout guards for identity, value tabs and shared activity controls. Static checks only; device visual QA remains necessary.');

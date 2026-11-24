@@ -2,6 +2,7 @@ import styled from "styled-components";
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Share2, MessageCircle } from "lucide-react";
+import { formatRentalMoney, normalizeRentalRooms, rentalDisplayPrice } from "../utils/rentalProperty";
 
 const Card = styled.div`
   background: white;
@@ -169,47 +170,6 @@ const NativeShareButton = styled(ActionButton)`
   flex: 1;
 `;
 
-function asMoneyNumber(value) {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-
-  if (typeof value === "string") {
-    const cleaned = value.replace(/[^\d.,-]/g, "").replace(/\./g, "");
-    const normalized = cleaned.replace(",", ".");
-    const n = Number(normalized);
-    return Number.isFinite(n) ? n : null;
-  }
-
-  return null;
-}
-
-function formatMoney(amount, currency = "PYG") {
-  const numeric = asMoneyNumber(amount);
-  if (numeric == null) return "Consultar precio";
-
-  if (currency === "PYG") {
-    return `${numeric.toLocaleString("es-PY")} Gs`;
-  }
-
-  return `${numeric.toLocaleString("es-PY")} ${currency}`;
-}
-
-function getRoomPrice(room, fallbackPrice) {
-  return (
-    asMoneyNumber(room?.price) ??
-    asMoneyNumber(room?.monthly_price) ??
-    asMoneyNumber(room?.precio) ??
-    asMoneyNumber(fallbackPrice)
-  );
-}
-
-function getRoomCurrency(room, fallbackCurrency = "PYG") {
-  return room?.currency || room?.moneda || fallbackCurrency || "PYG";
-}
-
-function getRoomImage(room, fallbackImage) {
-  return room?.image || room?.cover || room?.photos?.[0] || fallbackImage || "";
-}
-
 function buildPropertyUrl(propertyId, roomNumber) {
   if (typeof window === "undefined") return "";
   const origin = window.location.origin;
@@ -236,27 +196,7 @@ const RentalCard = ({
   const navigate = useNavigate();
 
   const normalizedRooms = useMemo(() => {
-    return (Array.isArray(rooms) ? rooms : []).map((room, index) => {
-      const roomPrice = getRoomPrice(room, price);
-      const roomCurrency = getRoomCurrency(room, currency);
-      const roomImage = getRoomImage(room, image);
-
-      return {
-        ...room,
-        id: room?.id || `${propertyId || "property"}-room-${index}`,
-        number: room?.number ?? index + 1,
-        available: Boolean(room?.available),
-        price: roomPrice,
-        currency: roomCurrency,
-        image: roomImage,
-        photos:
-          Array.isArray(room?.photos) && room.photos.length > 0
-            ? room.photos
-            : roomImage
-            ? [roomImage]
-            : [],
-      };
-    });
+    return normalizeRentalRooms({ id: propertyId, rooms, price, currency, image });
   }, [rooms, price, currency, image, propertyId]);
 
   const availableCount = useMemo(() => {
@@ -269,22 +209,15 @@ const RentalCard = ({
     return normalizedRooms.length;
   }, [roomCount, normalizedRooms]);
 
-  const cheapestAvailable = useMemo(() => {
-    return normalizedRooms
-      .filter((room) => room.available)
-      .filter((room) => typeof room.price === "number")
-      .sort((a, b) => a.price - b.price)[0];
-  }, [normalizedRooms]);
+  const firstAvailable = useMemo(
+    () => normalizedRooms.find((room) => room.available && typeof room.price === "number"),
+    [normalizedRooms]
+  );
 
-  const displayPrice = useMemo(() => {
-    if (cheapestAvailable) {
-      return `Desde ${formatMoney(
-        cheapestAvailable.price,
-        cheapestAvailable.currency
-      )}`;
-    }
-    return formatMoney(price, currency);
-  }, [cheapestAvailable, price, currency]);
+  const displayPrice = useMemo(
+    () => rentalDisplayPrice(normalizedRooms, price, currency),
+    [normalizedRooms, price, currency]
+  );
 
   const mainImage = useMemo(() => {
     return (
@@ -314,12 +247,12 @@ const RentalCard = ({
   };
 
   const shareText = useMemo(() => {
-    const roomText = cheapestAvailable
-      ? `Disponible desde ${formatMoney(
-          cheapestAvailable.price,
-          cheapestAvailable.currency
+    const roomText = firstAvailable
+      ? `Disponible desde ${formatRentalMoney(
+          firstAvailable.price,
+          firstAvailable.currency
         )}`
-      : `Precio: ${formatMoney(price, currency)}`;
+      : `Precio: ${formatRentalMoney(price, currency)}`;
 
     const locationText = Array.isArray(location)
       ? `Ubicación: ${location[0]}, ${location[1]}`
@@ -329,7 +262,7 @@ const RentalCard = ({
 
     const propertyUrl = buildPropertyUrl(
       propertyId,
-      cheapestAvailable?.number ?? null
+      firstAvailable?.number ?? null
     );
 
     return [
@@ -341,7 +274,7 @@ const RentalCard = ({
     ]
       .filter(Boolean)
       .join("\n");
-  }, [name, cheapestAvailable, price, currency, description, location, propertyId]);
+  }, [name, firstAvailable, price, currency, description, location, propertyId]);
 
   const handleWhatsappShare = () => {
     const url = `https://wa.me/?text=${encodeURIComponent(shareText)}`;
@@ -352,7 +285,7 @@ const RentalCard = ({
     try {
       const propertyUrl = buildPropertyUrl(
         propertyId,
-        cheapestAvailable?.number ?? null
+        firstAvailable?.number ?? null
       );
 
       if (navigator.share) {
@@ -417,7 +350,7 @@ const RentalCard = ({
               onClick={() => handleRoomClick(room)}
               title={
                 room.available
-                  ? `${String(room.number)} · ${formatMoney(
+                  ? `${String(room.number)} · ${formatRentalMoney(
                       room.price,
                       room.currency
                     )}`

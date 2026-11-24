@@ -2,7 +2,6 @@ import React, { useMemo, useState } from "react";
 import type { ComponentType, ReactNode } from "react";
 import { DatoVivo } from "./mt.traitAdapter";
 import { MtCajero } from "./mt.cajeroAdapter";
-import { setNamespaceTag } from "../pushtags";
 import { mtLiveUpsert } from "./mt.liveStore";
 
 type StyledTone = "ok" | "warn" | "neutral";
@@ -178,6 +177,33 @@ export default function FabricaVivaPanel(props: CommonProps) {
     });
   }, [materialOffers, nsFilter]);
 
+  const demandClusters = useMemo(() => {
+    const grouped = new Map<
+      string,
+      { title: string; items: DatoVivo[]; quantity: number; unit: string }
+    >();
+    for (const demand of visibleMaterialDemands) {
+      const title = getMaterialDemandTitle(demand);
+      const key = title
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .trim();
+      const current = grouped.get(key) || {
+        title,
+        items: [],
+        quantity: 0,
+        unit: getMaterialDemandUnit(demand),
+      };
+      current.items.push(demand);
+      current.quantity += getMaterialDemandQty(demand);
+      grouped.set(key, current);
+    }
+    return Array.from(grouped.values()).sort(
+      (a, b) => b.items.length - a.items.length,
+    );
+  }, [visibleMaterialDemands]);
+
   function openMaterialReply(d: DatoVivo) {
     const threadId =
       getDvThreadId(d) ||
@@ -249,10 +275,6 @@ export default function FabricaVivaPanel(props: CommonProps) {
 
       mtLiveUpsert(dv);
 
-      try {
-        await setNamespaceTag(getOfferNs(replyMaterialDemand) || "mt:market");
-      } catch {}
-
       setInboxThreadId(threadId);
       setReplyMaterialDemand(null);
       setMatOfferPrice("");
@@ -288,31 +310,25 @@ export default function FabricaVivaPanel(props: CommonProps) {
                 gap: 8,
               }}
             >
-              🏭 Fábrica viva
+              ✨ Necesidades relacionadas
             </div>
 
-            <Subtle style={{ marginBottom: 10 }}>
-              Demandas de producción y materiales que realmente necesitan respuesta.
-            </Subtle>
-
             <Grid>
-              {visibleMaterialDemands.map((d: DatoVivo) => {
-                const ns = getOfferNs(d);
-                const title = getMaterialDemandTitle(d);
-                const qty = getMaterialDemandQty(d);
-                const unit = getMaterialDemandUnit(d);
+              {demandClusters.map((cluster) => {
+                const d = cluster.items[0];
                 const maxPrice = getMaterialDemandMaxPrice(d);
-                const parentId = getMaterialDemandParentId(d);
 
                 return (
-                  <Card key={d.id}>
-                    <Title>{title}</Title>
+                  <Card key={String(d.id)}>
+                    <Title>Buscan {cluster.title}</Title>
 
                     <Subtle style={{ marginTop: 6 }}>
-                      Requiere: {qty} {unit}
+                      {cluster.items.length}{" "}
+                      {cluster.items.length === 1 ? "solicitud" : "solicitudes"}
+                      {cluster.quantity > 0
+                        ? ` · ${cluster.quantity} ${cluster.unit} en total`
+                        : ""}
                     </Subtle>
-
-                    {parentId ? <Subtle>Producción: {parentId}</Subtle> : null}
 
                     {(d as any)?.attrs?.notes ? (
                       <Subtle style={{ marginTop: 4 }}>
@@ -320,30 +336,15 @@ export default function FabricaVivaPanel(props: CommonProps) {
                       </Subtle>
                     ) : null}
 
-                    <Chips>
-                      <Chip tone="neutral">{ns}</Chip>
-                      <Chip tone="ok">material</Chip>
-                    </Chips>
-
                     <Price>
                       {maxPrice != null
-                        ? `Hasta ${maxPrice} / ${unit}`
+                        ? `Hasta ${maxPrice} / ${cluster.unit}`
                         : "Precio abierto"}
                     </Price>
 
                     <Actions>
-                      <SmallBtn
-                        tone="ghost"
-                        onClick={() => {
-                          const threadId = getDvThreadId(d);
-                          if (threadId) setInboxThreadId(threadId);
-                        }}
-                      >
-                        Ver hilo
-                      </SmallBtn>
-
                       <SmallBtn onClick={() => openMaterialReply(d)}>
-                        Ofertar material
+                        Puedo ayudar
                       </SmallBtn>
                     </Actions>
                   </Card>
@@ -369,12 +370,8 @@ export default function FabricaVivaPanel(props: CommonProps) {
                 gap: 8,
               }}
             >
-              📦 Ofertas de materiales
+              🪵 Material disponible
             </div>
-
-            <Subtle style={{ marginBottom: 10 }}>
-              Respuestas reales de proveedores a demandas de materiales.
-            </Subtle>
 
             <Grid>
               {visibleMaterialOffers.map((d: DatoVivo) => {
@@ -383,7 +380,6 @@ export default function FabricaVivaPanel(props: CommonProps) {
                 const qty = Number((d as any)?.attrs?.quantity || 0);
                 const unitPrice = getMaterialOfferUnitPrice(d);
                 const supplier = getMaterialOfferSupplier(d);
-                const ns = getOfferNs(d);
 
                 return (
                   <Card key={d.id}>
@@ -399,24 +395,9 @@ export default function FabricaVivaPanel(props: CommonProps) {
                         : "Entrega a coordinar"}
                     </Subtle>
 
-                    <Chips>
-                      <Chip tone="neutral">{ns}</Chip>
-                      <Chip tone="ok">proveedor</Chip>
-                    </Chips>
-
                     <Price>{unitPrice} / {unit}</Price>
 
                     <Actions>
-                      <SmallBtn
-                        tone="ghost"
-                        onClick={() => {
-                          const threadId = getDvThreadId(d);
-                          if (threadId) setInboxThreadId(threadId);
-                        }}
-                      >
-                        Ver hilo
-                      </SmallBtn>
-
                       <SmallBtn
                         onClick={() => {
                           const threadId = getDvThreadId(d);
@@ -426,7 +407,7 @@ export default function FabricaVivaPanel(props: CommonProps) {
                           }
                         }}
                       >
-                        Abrir inbox
+                        Conversación
                       </SmallBtn>
                     </Actions>
                   </Card>

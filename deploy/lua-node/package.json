@@ -1,0 +1,13 @@
+{
+  "name": "utopy-node-booking-host",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --experimental-sqlite server/booking/run.mjs",
+    "provision": "node server/booking/provision-node.mjs",
+    "preflight": "node --experimental-sqlite server/booking/preflight.mjs"
+  },
+  "dependencies": {
+    "utopy": "file:vendor/utopy-2.0.0-beta.3-interface-a2e06908.tgz"
+  }
+}

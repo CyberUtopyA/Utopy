@@ -1,393 +1,97 @@
 import React, { useEffect, useMemo, useState } from "react";
-import styled from "styled-components";
-import OneSignal from "react-onesignal";
+import styled, { keyframes } from "styled-components";
+import { Check, Mic, PencilLine, Settings2, X } from "lucide-react";
+import QRCode from "react-qr-code";
 import Portal from "../pages/ui/portal";
-import { Bell, BellOff, Check, X } from "lucide-react";
+import { disableFrequencyPush, enableFrequencyPush, frequencyPushEnabled } from "../utopy/frequency.push";
+import { buildFrequencyEvent, frequencyPreferences, publishFrequencyEvent, setFrequencyPreferences } from "../utopy/frequency.engine";
+import type { FrequencyMode } from "../utopy/frequency.types";
+import { frequencyQrReference, frequencyShareUrl } from "../utopy/frequency.qr";
+import { interpretHumanSignal } from "../social/interlanguage";
+import { publishUniversalSignal } from "../mt/mt.signalProtocol";
+import { useLocation, useNavigate } from "react-router-dom";
+import { profileHandleForIdentity } from "../mt/productRoute";
 
-const Backdrop = styled.div`
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 10040;
-  padding: 12px;
-`;
+const appear = keyframes`from{opacity:0;transform:translateY(12px) scale(.985)}to{opacity:1;transform:none}`;
+const wave = keyframes`from{box-shadow:0 0 0 0 rgba(116,92,180,.24)}to{box-shadow:0 0 0 24px rgba(116,92,180,0)}`;
+const Backdrop = styled.div`position:fixed;inset:0;z-index:10040;display:grid;place-items:center;padding:16px;background:rgba(24,20,34,.34);backdrop-filter:blur(10px);@media(max-width:640px){place-items:end stretch;padding:0}`;
+const Sheet = styled.section`width:min(100%,480px);max-height:min(88vh,760px);overflow:hidden;display:grid;grid-template-rows:auto minmax(0,1fr);border:1px solid rgba(255,255,255,.72);border-radius:30px;color:#191621;background:radial-gradient(circle at 12% 0%,rgba(225,216,250,.78),transparent 38%),linear-gradient(145deg,rgba(255,253,249,.96),rgba(249,246,252,.92));box-shadow:0 30px 90px rgba(45,35,68,.22);backdrop-filter:blur(24px) saturate(1.15);animation:${appear} .22s ease-out both;@media(max-width:640px){width:100%;max-height:calc(100dvh - 18px);border-radius:30px 30px 0 0;border-bottom:0;padding-bottom:env(safe-area-inset-bottom)}`;
+const Header = styled.header`display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 20px 14px`;
+const Brand = styled.div`display:flex;align-items:center;gap:11px;min-width:0`;
+const Orb = styled.span<{$wave?:boolean}>`width:42px;height:42px;flex:0 0 42px;display:grid;place-items:center;border-radius:50%;color:#493a70;background:rgba(255,255,255,.72);box-shadow:0 8px 24px rgba(79,60,120,.12),inset 0 0 0 1px rgba(96,71,148,.1);font:900 25px/1 system-ui;animation:${({$wave})=>$wave?wave:"none"} .9s ease-out 1`;
+const BrandText = styled.div`min-width:0;b{display:block;font-size:1rem;letter-spacing:-.02em}span{display:block;margin-top:2px;font-size:.72rem;opacity:.58}`;
+const IconButton = styled.button`width:42px;height:42px;border:0;border-radius:50%;display:grid;place-items:center;color:inherit;background:rgba(255,255,255,.64);cursor:pointer;&:hover{background:#fff}&:focus-visible{outline:3px solid rgba(116,92,180,.24);outline-offset:2px}`;
+const Scroll = styled.div`overflow-y:auto;overscroll-behavior:contain;padding:4px 20px 24px;scrollbar-width:thin;@media(max-width:640px){padding:2px 16px 24px}`;
+const Intro = styled.div`padding:8px 10px 20px;text-align:center;h2{margin:0;font-size:clamp(1.4rem,5vw,1.85rem);letter-spacing:-.045em}p{max-width:350px;margin:9px auto 0;color:rgba(35,29,48,.68);font-size:.9rem;line-height:1.45}`;
+const GlassCard = styled.div`display:grid;gap:11px;padding:18px;border:1px solid rgba(102,78,148,.12);border-radius:24px;background:rgba(255,255,255,.66);box-shadow:0 15px 42px rgba(64,46,94,.08)`;
+const AskCard = styled(GlassCard)`justify-items:center;text-align:center;h3{margin:0;font-size:1.12rem}small{color:rgba(35,29,48,.57)}`;
+const TalkOrb = styled.button`width:88px;height:88px;border:1px solid rgba(103,77,154,.16);border-radius:50%;display:grid;place-items:center;align-content:center;gap:3px;color:#382c54;background:linear-gradient(145deg,#fff,#eee8f8);box-shadow:0 14px 35px rgba(83,62,124,.16);cursor:pointer;svg{width:25px}span{font-size:.72rem;font-weight:900}&:active{transform:scale(.97)}`;
+const ActionRow = styled.div`width:100%;display:flex;justify-content:center;gap:8px;overflow-x:auto`;
+const SoftButton = styled.button<{$primary?:boolean}>`min-height:42px;border:1px solid rgba(85,62,133,.14);border-radius:999px;padding:9px 14px;display:inline-flex;align-items:center;justify-content:center;gap:7px;white-space:nowrap;color:${({$primary})=>$primary?"#fff":"#2d2738"};background:${({$primary})=>$primary?"linear-gradient(135deg,#594278,#765fa1)":"rgba(255,255,255,.68)"};font:850 .8rem/1 system-ui;cursor:pointer;&:disabled{opacity:.45;cursor:default}`;
+const Composer = styled.div`width:100%;display:grid;gap:9px;text-align:left;textarea{width:100%;min-height:82px;box-sizing:border-box;resize:vertical;border:1px solid rgba(76,57,112,.16);border-radius:18px;padding:13px 14px;color:#211b2d;background:rgba(255,255,255,.84);font:inherit}textarea:focus{outline:3px solid rgba(116,92,180,.14)}`;
+const Understood = styled.div`display:grid;gap:5px;padding:13px 14px;border-radius:17px;color:#332847;background:rgba(231,224,247,.62);b{font-size:.86rem}span{font-size:.78rem;line-height:1.35}`;
+const PushCard = styled(GlassCard)<{$enabled?:boolean}>`margin-top:13px;grid-template-columns:auto 1fr;align-items:center;padding:13px;background:${({$enabled})=>$enabled?"rgba(234,246,235,.68)":"rgba(249,246,252,.72)"};button,small{grid-column:1/-1}`;
+const PushMark = styled.span<{$enabled?:boolean}>`width:38px;height:38px;border-radius:50%;display:grid;place-items:center;color:${({$enabled})=>$enabled?"#28663a":"#594278"};background:${({$enabled})=>$enabled?"rgba(75,173,101,.14)":"rgba(116,92,180,.1)"};font-size:21px`;
+const PushCopy = styled.div`b{display:block;font-size:.86rem}span{display:block;margin-top:3px;color:rgba(35,29,48,.61);font-size:.74rem;line-height:1.35}`;
+const Tabs = styled.div`position:sticky;top:-4px;z-index:2;margin:18px 0 12px;padding:4px;display:grid;grid-template-columns:repeat(3,1fr);gap:3px;border-radius:999px;background:rgba(238,233,244,.88);backdrop-filter:blur(14px)`;
+const Tab = styled.button<{$active?:boolean}>`min-height:40px;border:0;border-radius:999px;color:${({$active})=>$active?"#292133":"rgba(41,33,51,.58)"};background:${({$active})=>$active?"rgba(255,255,255,.94)":"transparent"};box-shadow:${({$active})=>$active?"0 5px 18px rgba(55,42,78,.08)":"none"};font:850 .78rem/1 system-ui;cursor:pointer`;
+const Feed = styled.div`display:grid;gap:9px`;
+const ResonanceCard = styled.button`width:100%;min-height:84px;border:1px solid rgba(86,64,128,.1);border-radius:20px;padding:13px;display:grid;grid-template-columns:42px 1fr auto;align-items:center;gap:11px;color:inherit;background:rgba(255,255,255,.7);text-align:left;cursor:pointer;&:hover{background:#fff;transform:translateY(-1px)}`;
+const CardIcon = styled.span`width:42px;height:42px;border-radius:15px;display:grid;place-items:center;background:rgba(230,222,245,.62);font-size:21px`;
+const CardCopy = styled.span`min-width:0;b{display:block;font-size:.84rem;line-height:1.3}small{display:block;margin-top:4px;color:rgba(35,29,48,.57);font-size:.71rem;line-height:1.25}`;
+const ViewLabel = styled.span`font-size:.71rem;font-weight:900;color:#654e8e`;
+const Empty = styled.div`min-height:150px;display:grid;place-items:center;align-content:center;gap:7px;padding:20px;text-align:center;color:rgba(38,31,50,.65);strong{color:#3b304c;font-size:.92rem}span{color:#76609d;font-size:31px}small{max-width:310px;line-height:1.4}`;
+const ModeSection = styled.div`margin-top:17px;h3{margin:0 0 9px;font-size:.88rem}`;
+const Modes = styled.div`display:grid;grid-template-columns:1fr 1fr;gap:7px`;
+const Mode = styled.button<{$active?:boolean}>`min-height:68px;border:1px solid ${({$active})=>$active?"rgba(95,69,146,.3)":"rgba(72,55,102,.1)"};border-radius:17px;padding:10px;color:inherit;background:${({$active})=>$active?"rgba(230,222,246,.72)":"rgba(255,255,255,.56)"};text-align:left;cursor:pointer;b{display:block;font-size:.79rem}small{display:block;margin-top:4px;color:rgba(35,29,48,.57);font-size:.68rem;line-height:1.25}`;
+const SettingsButton = styled.button`margin:17px auto 0;min-height:40px;border:0;display:flex;align-items:center;gap:7px;color:rgba(43,34,56,.67);background:transparent;font:800 .76rem/1 system-ui;cursor:pointer`;
+const Settings = styled.div`margin-top:9px;padding:12px;border-radius:18px;display:grid;gap:9px;background:rgba(255,255,255,.56)`;
+const Message = styled.div`margin-top:9px;color:rgba(45,35,57,.68);font-size:.74rem;line-height:1.35;text-align:center`;
 
-const ModalBox = styled.div`
-  width: 100%;
-  max-width: 420px;
-  background: #fff;
-  border-radius: 20px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
-  overflow: hidden;
-`;
+type AttentionItem={dv:any;outcome:"RESONANCE"|"PUSH"|"SILENT_FEED"|"IGNORE"};
+type View="for-you"|"near"|"yours";
+type Props={open:boolean;onClose:()=>void;onStateChange?:(state:{enabled:boolean;mode:FrequencyMode;hasActiveFrequency:boolean})=>void;allLive?:any[];activeActor?:any};
+const MODES:Array<{id:FrequencyMode;icon:string;title:string;description:string}>=[
+  {id:"soft",icon:"🌱",title:"Suave",description:"Solo lo realmente importante."},
+  {id:"normal",icon:"⌁",title:"Normal",description:"Un poco más atento."},
+  {id:"now",icon:"⚡",title:"Ahora",description:"Quiero encontrarlo pronto."},
+  {id:"silent",icon:"🌙",title:"Silencio",description:"No me interrumpas por ahora."},
+];
+function text(...values:unknown[]){for(const value of values)if(value!=null&&String(value).trim())return String(value).trim();return ""}
+function timestampOf(dv:any){const parsed=Date.parse(text(dv?.meta?.updatedAt,dv?.meta?.ts,dv?.attrs?.updatedAt,dv?.ts));return Number.isFinite(parsed)?parsed:0}
+function hasPublicTerritory(dv:any){const scopes=Array.isArray(dv?.meta?.scopes)?dv.meta.scopes.map(String):[];if(scopes.length&&!scopes.includes("public")&&!scopes.includes("market"))return false;const geo=dv?.attrs?.geo||dv?.attrs?.approximateLocation||dv?.attrs?.territory;return Boolean(geo&&(Number.isFinite(Number(geo.lat))||text(geo.label,geo.name)))}
+function humanCard(dv:any){const kind=text(dv?.kind).toLowerCase();const title=text(dv?.attrs?.title,dv?.attrs?.name,dv?.attrs?.label,dv?.labels?.[0]);const place=text(dv?.attrs?.geo?.label,dv?.attrs?.approximateLocation?.label,dv?.attrs?.territory?.label);const node=text(dv?.attrs?.node?.name,dv?.attrs?.sellerName,dv?.attrs?.provider?.name);if(/route|delivery|transport/.test(kind))return{icon:"🚚",title:"Podrías completar esta conexión",detail:title||"Falta acercar algo hasta donde lo necesitan."};if(/product|producto|jewel|design/.test(kind))return{icon:"💎",title:"Encontramos algo parecido a lo que buscabas",detail:[title,node].filter(Boolean).join(" · ")};return{icon:"🪵",title:title||"Alguien necesita algo que sabés hacer",detail:[node,place||"cerca"].filter(Boolean).join(" · ")}}
+function statusHuman(status:unknown){const value=text(status).toLowerCase();if(value==="paused")return"◌ Pausado";if(value==="resolved")return"✓ Encontrado";if(value==="expired")return"○ Terminó";return"⌁ Resonando"}
+function ownedProjection(all:any[],actorId:string){const latest=new Map<string,any>();for(const dv of all){if(!text(dv?.kind).startsWith("frequency.")||text(dv?.attrs?.actorId)!==actorId)continue;const id=text(dv?.attrs?.frequencyId);const current=latest.get(id);if(id&&(!current||Number(dv?.attrs?.sequence||0)>Number(current?.attrs?.sequence||0)))latest.set(id,dv)}return Array.from(latest.values()).sort((a,b)=>timestampOf(b)-timestampOf(a)).slice(0,6)}
 
-const Header = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 14px 16px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-`;
-
-const TitleWrap = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-`;
-
-const IconBubble = styled.div<{ enabled?: boolean }>`
-  width: 38px;
-  height: 38px;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: ${({ enabled }) =>
-    enabled ? "rgba(34,197,94,0.14)" : "rgba(0,0,0,0.06)"};
-  color: #111;
-`;
-
-const Title = styled.div`
-  font-weight: 950;
-  font-size: 0.98rem;
-  line-height: 1.1;
-`;
-
-const Subtle = styled.div`
-  opacity: 0.7;
-  font-size: 0.85rem;
-  line-height: 1.2;
-`;
-
-const CloseBtn = styled.button`
-  border: none;
-  background: transparent;
-  width: 34px;
-  height: 34px;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-
-  &:hover {
-    background: rgba(0, 0, 0, 0.06);
-  }
-`;
-
-const Body = styled.div`
-  padding: 16px;
-  display: grid;
-  gap: 14px;
-`;
-
-const ToggleCard = styled.button<{ enabled?: boolean }>`
-  border: 1px solid
-    ${({ enabled }) =>
-      enabled ? "rgba(34,197,94,0.35)" : "rgba(0,0,0,0.10)"};
-  background: ${({ enabled }) =>
-    enabled ? "rgba(34,197,94,0.08)" : "#fff"};
-  border-radius: 16px;
-  padding: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  cursor: pointer;
-  text-align: left;
-`;
-
-const ToggleLeft = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 12px;
-`;
-
-const ToggleIcon = styled.div<{ enabled?: boolean }>`
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: ${({ enabled }) =>
-    enabled ? "rgba(34,197,94,0.14)" : "rgba(0,0,0,0.06)"};
-`;
-
-const ToggleTitle = styled.div`
-  font-weight: 900;
-  font-size: 0.95rem;
-`;
-
-const ToggleDesc = styled.div`
-  opacity: 0.72;
-  font-size: 0.84rem;
-  margin-top: 2px;
-`;
-
-const CheckBubble = styled.div<{ enabled?: boolean }>`
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: ${({ enabled }) =>
-    enabled ? "rgba(34,197,94,0.18)" : "rgba(0,0,0,0.06)"};
-`;
-
-const Field = styled.div`
-  display: grid;
-  gap: 8px;
-`;
-
-const Label = styled.label`
-  font-size: 0.84rem;
-  font-weight: 900;
-`;
-
-const Select = styled.select`
-  width: 100%;
-  border: 1px solid rgba(0, 0, 0, 0.12);
-  border-radius: 14px;
-  padding: 12px 14px;
-  background: #fff;
-  color: #111;
-  font-size: 0.92rem;
-
-  &:focus {
-    outline: none;
-    border-color: rgba(34, 197, 94, 0.55);
-    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.16);
-  }
-`;
-
-const Footer = styled.div`
-  padding: 0 16px 16px;
-  display: flex;
-  justify-content: flex-end;
-`;
-
-const DoneBtn = styled.button`
-  border: 1px solid rgba(34, 197, 94, 0.45);
-  background: #15ff00ff;
-  color: #111;
-  border-radius: 999px;
-  padding: 10px 14px;
-  font-weight: 950;
-  cursor: pointer;
-`;
-
-type Props = {
-  open: boolean;
-  namespaces: string[];
-  onClose: () => void;
-  onStateChange?: (state: { enabled: boolean; selectedNs: string }) => void;
-};
-
-let oneSignalStarted = false;
-
-async function initOneSignal() {
-  if (oneSignalStarted) return;
-  oneSignalStarted = true;
-
-  await OneSignal.init({
-    appId: import.meta.env.VITE_ONESIGNAL_APP_ID,
-    allowLocalhostAsSecureOrigin: true,
-    serviceWorkerPath: "/OneSignalSDKWorker.js",
-    serviceWorkerUpdaterPath: "/OneSignalSDKUpdaterWorker.js",
-  });
-}
-
-function clean(value: string) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[:.\-/\s]+/g, "_")
-    .replace(/[^a-z0-9_]/g, "")
-    .replace(/^_+|_+$/g, "");
-}
-
-function nsTag(ns: string) {
-  return `ns_${clean(ns)}`;
-}
-
-async function clearNamespaceTags(namespaces: string[]) {
-  await initOneSignal();
-  const keys = ["ns_all", ...namespaces.map(nsTag)];
-  await OneSignal.User.removeTags(keys);
-}
-
-async function setNamespaceTag(ns: string) {
-  await initOneSignal();
-
-  if (ns === "__ALL__") {
-    await OneSignal.User.addTags({ ns_all: "1" });
-    return;
-  }
-
-  await OneSignal.User.removeTags(["ns_all"]);
-  await OneSignal.User.addTags({ [nsTag(ns)]: "1" });
-}
-
-async function requestPushPermission(): Promise<boolean> {
-  await initOneSignal();
-
-  try {
-    const perm = await OneSignal.Notifications.permission;
-    if (perm === true) return true;
-
-    const accepted = await OneSignal.Notifications.requestPermission();
-    return !!accepted;
-  } catch (err) {
-    console.error("[OneSignal] request permission error", err);
-    return false;
-  }
-}
-
-async function isPushEnabled(): Promise<boolean> {
-  await initOneSignal();
-
-  try {
-    return !!(await OneSignal.Notifications.permission);
-  } catch (err) {
-    console.error("[OneSignal] isPushEnabled error", err);
-    return false;
-  }
-}
-
-export default function NotificationSelectorModal({
-  open,
-  namespaces,
-  onClose,
-  onStateChange,
-}: Props) {
-  const [enabled, setEnabled] = useState(false);
-  const [selectedNs, setSelectedNs] = useState("__ALL__");
-
-  const stableNamespaces = useMemo(() => namespaces || [], [namespaces]);
-
-  useEffect(() => {
-    initOneSignal()
-      .then(async () => {
-        const ok = await isPushEnabled();
-        setEnabled(ok);
-        onStateChange?.({ enabled: ok, selectedNs });
-      })
-      .catch((err) => {
-        console.error("[OneSignal] init error", err);
-      });
-  }, []);
-
-  useEffect(() => {
-    onStateChange?.({ enabled, selectedNs });
-  }, [enabled, selectedNs, onStateChange]);
-
-  async function handleToggleEnabled() {
-    if (!enabled) {
-      const ok = await requestPushPermission();
-      if (!ok) return;
-
-      await clearNamespaceTags(stableNamespaces);
-      await setNamespaceTag(selectedNs);
-      setEnabled(true);
-      return;
-    }
-
-    await clearNamespaceTags(stableNamespaces);
-    setEnabled(false);
-  }
-
-  async function handleChangeNs(ns: string) {
-    setSelectedNs(ns);
-
-    if (!enabled) return;
-
-    await clearNamespaceTags(stableNamespaces);
-    await setNamespaceTag(ns);
-  }
-
-  if (!open) return null;
-
-  return (
-    <Portal>
-      <Backdrop onClick={onClose}>
-        <ModalBox onClick={(e) => e.stopPropagation()}>
-          <Header>
-            <TitleWrap>
-              <IconBubble enabled={enabled}>
-                {enabled ? <Bell size={18} /> : <BellOff size={18} />}
-              </IconBubble>
-              <div>
-                <Title>Notificaciones</Title>
-                <Subtle>
-                  Configurá alertas de ofertas vivas por namespace
-                </Subtle>
-              </div>
-            </TitleWrap>
-
-            <CloseBtn onClick={onClose} aria-label="Cerrar">
-              <X size={18} />
-            </CloseBtn>
-          </Header>
-
-          <Body>
-            <ToggleCard enabled={enabled} onClick={handleToggleEnabled}>
-              <ToggleLeft>
-                <ToggleIcon enabled={enabled}>
-                  {enabled ? <Bell size={20} /> : <BellOff size={20} />}
-                </ToggleIcon>
-                <div>
-                  <ToggleTitle>
-                    {enabled
-                      ? "Notificaciones activadas"
-                      : "Notificaciones desactivadas"}
-                  </ToggleTitle>
-                  <ToggleDesc>
-                    {enabled
-                      ? "Recibirás alertas nuevas en el navegador."
-                      : "Tocá aquí para activar las alertas."}
-                  </ToggleDesc>
-                </div>
-              </ToggleLeft>
-
-              <CheckBubble enabled={enabled}>
-                {enabled ? <Check size={16} /> : null}
-              </CheckBubble>
-            </ToggleCard>
-
-            <Field>
-              <Label>Namespace a notificar</Label>
-              <Select
-                value={selectedNs}
-                onChange={(e) => handleChangeNs(e.target.value)}
-              >
-                <option value="__ALL__">Todos</option>
-                {stableNamespaces.map((ns) => (
-                  <option key={ns} value={ns}>
-                    {ns}
-                  </option>
-                ))}
-              </Select>
-
-              <Subtle>
-                Elegí si querés escuchar ofertas de toda la red o solo de un
-                mundo.
-              </Subtle>
-            </Field>
-          </Body>
-
-          <Footer>
-            <DoneBtn onClick={onClose}>Listo</DoneBtn>
-          </Footer>
-        </ModalBox>
-      </Backdrop>
-    </Portal>
-  );
+export default function FrequencyVivaModal({open,onClose,onStateChange,allLive=[],activeActor}:Props){
+  const navigate=useNavigate();const location=useLocation();
+  const [enabled,setEnabled]=useState(false);const [mode,setMode]=useState<FrequencyMode>(()=>frequencyPreferences().mode);const [expression,setExpression]=useState("");const [writing,setWriting]=useState(false);const [message,setMessage]=useState("");const [activeFrequency,setActiveFrequency]=useState<any>(null);const [referenceDV,setReferenceDV]=useState<any>(null);const [showQr,setShowQr]=useState(false);const [showSettings,setShowSettings]=useState(false);const [view,setView]=useState<View>("for-you");const [attention,setAttention]=useState<{decisions:AttentionItem[];summary:string}>({decisions:[],summary:""});const [showWave,setShowWave]=useState(false);
+  const meaning=useMemo(()=>interpretHumanSignal(expression),[expression]);const actorId=text(activeActor?.id);const owned=useMemo(()=>ownedProjection(allLive,actorId),[allLive,actorId]);const hasActiveFrequency=owned.some(event=>event?.attrs?.status==="active");const nearby=useMemo(()=>allLive.filter(dv=>hasPublicTerritory(dv)&&!text(dv?.kind).startsWith("frequency.")).sort((a,b)=>timestampOf(b)-timestampOf(a)).slice(0,4),[allLive]);
+  useEffect(()=>{frequencyPushEnabled().then(setEnabled).catch(()=>setEnabled(false))},[]);
+  useEffect(()=>{onStateChange?.({enabled,mode,hasActiveFrequency})},[enabled,mode,hasActiveFrequency,onStateChange]);
+  useEffect(()=>{const receive=(event:Event)=>{const detail=(event as CustomEvent)?.detail||{};setAttention({decisions:Array.isArray(detail.decisions)?detail.decisions:[],summary:text(detail.summary)})};window.addEventListener("utopy:frequency:attention",receive);return()=>window.removeEventListener("utopy:frequency:attention",receive)},[]);
+  useEffect(()=>{if(!open)return;const requested=new URLSearchParams(window.location.search).get("frequencyId");if(!requested)return;const event=allLive.filter(dv=>text(dv?.attrs?.frequencyId)===requested).sort((a,b)=>Number(b?.attrs?.sequence||0)-Number(a?.attrs?.sequence||0))[0];if(event){selectOwned(event);setView("yours")}},[open,allLive]);
+  async function togglePush(){setMessage("");try{if(!enabled){const ok=await enableFrequencyPush(actorId||"utopy.actor.local");if(ok)setEnabled(true)}else{await disableFrequencyPush(actorId||"utopy.actor.local");setEnabled(false)}}catch(error:any){setMessage(text(error?.message)||"No pudimos cambiar el permiso en este momento.")}}
+  function chooseMode(next:FrequencyMode){setMode(next);setFrequencyPreferences({mode:next,actorId})}
+  function listen(){setWriting(true);const Speech=(window as any).SpeechRecognition||(window as any).webkitSpeechRecognition;if(!Speech){setMessage("Podés escribirlo: este navegador todavía no permite hablar.");return}const recognition=new Speech();recognition.lang="es-PY";recognition.interimResults=false;recognition.maxAlternatives=1;recognition.onresult=(event:any)=>{setExpression(text(event.results?.[0]?.[0]?.transcript));setMessage("")};recognition.onerror=()=>setMessage("No pude escucharte. Probá otra vez o escribilo.");recognition.start();setMessage("Te escucho…")}
+  async function resonate(){if(!expression.trim())return;if(!actorId){setMessage("Creá o elegí tu identidad para hacer resonar esto.");return}setMessage("Preparando tu frecuencia…");try{const categories:Record<string,any>={"Crear y reparar":"fabrication",Materiales:"material",Transporte:"transport",Comida:"commerce","Cuidado personal":"other",Enseñar:"other",Tecnología:"other",Otro:"other"};const published=await publishUniversalSignal({mode:["sell","offer","available"].includes(meaning.mode)?"offer":"need",category:categories[meaning.category]||"other",title:expression.trim(),text:expression.trim(),actorId,actorName:activeActor?.name,nodeId:activeActor?.nodeId||null,extraCapabilities:meaning.domains,allLive,activeActor,sourceApp:"market.frequency"});const start=buildFrequencyEvent({kind:"frequency.start",reference:published.dv,actorId});const started=await publishFrequencyEvent(start,[...allLive,published.dv],activeActor);setActiveFrequency(started);setReferenceDV(published.dv);setExpression("");setWriting(false);setView("yours");setMessage("⌁ Está resonando");setShowWave(true);window.setTimeout(()=>setShowWave(false),950)}catch(error:any){setMessage(text(error?.message)||"No se pudo iniciar la frecuencia.")}}
+  async function changeFrequency(status:"active"|"paused"|"resolved"){if(!activeFrequency||!referenceDV||!actorId)return;const next=buildFrequencyEvent({kind:status==="resolved"?"frequency.resolve":"frequency.update",reference:referenceDV,actorId,frequencyId:activeFrequency.attrs.frequencyId,sequence:Number(activeFrequency.attrs.sequence||1)+1,status});const published=await publishFrequencyEvent(next,allLive,activeActor);setActiveFrequency(published);setMessage(status==="resolved"?"✓ Ya encontraste lo que necesitabas.":status==="paused"?"Frecuencia pausada.":"⌁ Volvió a resonar.")}
+  async function shareFrequency(){if(!activeFrequency)return;const url=frequencyShareUrl(activeFrequency.attrs.frequencyId);if(navigator.share)await navigator.share({title:"Frecuencia Viva UTOPY",url});else{await navigator.clipboard.writeText(url);setMessage("Enlace copiado.")}}
+  function selectOwned(event:any){setActiveFrequency(event);const refId=text(event?.attrs?.reference?.id);setReferenceDV(allLive.find(dv=>text(dv?.id)===refId)||event?.attrs?.reference);setShowQr(false)}
+  function openProfile(dv:any){onClose();navigate(`/${profileHandleForIdentity(dv,humanCard(dv).detail)}`,{state:{returnTo:`${location.pathname}${location.search}${location.hash}`,scrollY:window.scrollY}})}
+  if(!open)return null;const relevant=attention.decisions.filter(item=>item.outcome==="RESONANCE"||item.outcome==="PUSH");const currentTitle=text(referenceDV?.attrs?.title,referenceDV?.attrs?.name,referenceDV?.labels?.[0],"Mi frecuencia");
+  const empty=(near=false)=><Empty><span>⌁</span><strong>Está tranquilo por acá.</strong><small>{near?"La actividad territorial permitida aparecerá cuando tenga sentido.":"Cuando algo realmente conecte con vos, UTOPY lo va a acercar."}</small></Empty>;
+  return <Portal><Backdrop onMouseDown={event=>{if(event.target===event.currentTarget)onClose()}}><Sheet role="dialog" aria-modal="true" aria-labelledby="frequency-title"><Header><Brand><Orb $wave={showWave}>⌁</Orb><BrandText><b id="frequency-title">Frecuencia Viva</b><span>Algo vivo puede encontrarse con algo más</span></BrandText></Brand><IconButton onClick={onClose} aria-label="Cerrar Frecuencia Viva"><X size={19}/></IconButton></Header><Scroll>
+    <Intro><h2>¿Qué necesitás hoy?</h2><p>UTOPY acerca solo aquello que realmente puede tener sentido para vos.</p></Intro>
+    <AskCard><TalkOrb onClick={listen} aria-label="Hablar con Frecuencia Viva"><Mic/><span>Decímelo</span></TalkOrb><small>También podés escribirlo.</small><ActionRow><SoftButton $primary onClick={listen}><Mic size={16}/> Hablar</SoftButton><SoftButton onClick={()=>setWriting(true)}><PencilLine size={16}/> Escribir</SoftButton></ActionRow>{writing||expression?<Composer><textarea autoFocus value={expression} onChange={event=>setExpression(event.target.value)} placeholder="Necesito un carpintero mañana…" aria-label="Expresá lo que necesitás"/>{expression?<Understood><b>Entendí ✨</b><span>{meaning.category==="Crear y reparar"?"🪵 Buscás alguien que trabaje o cree con sus manos":meaning.plainSummary}</span>{/mañana/i.test(expression)?<span>📅 Mañana</span>:null}<span>📍 En tu zona</span></Understood>:null}<ActionRow><SoftButton $primary disabled={!expression.trim()} onClick={resonate}>⌁ Hacer resonar</SoftButton><SoftButton onClick={()=>setExpression("")}>Cambiar</SoftButton></ActionRow></Composer>:null}</AskCard>
+    <PushCard $enabled={enabled}><PushMark $enabled={enabled}>{enabled?<Check size={18}/>:"⌁"}</PushMark><PushCopy><b>{enabled?"Frecuencia activa":"Dejá que UTOPY te encuentre"}</b><span>{enabled?"UTOPY está escuchando tu red suavemente.":"Podemos acercarte algo cuando realmente conecte con vos."}</span></PushCopy>{!enabled?<><SoftButton $primary onClick={togglePush}>⌁ Activar Frecuencia</SoftButton><small style={{textAlign:"center",opacity:.58}}>Sin spam. Vos decidís cuánto querés escuchar.</small></>:null}</PushCard>
+    <Tabs role="tablist"><Tab $active={view==="for-you"} onClick={()=>setView("for-you")}>Para vos</Tab><Tab $active={view==="near"} onClick={()=>setView("near")}>Cerca</Tab><Tab $active={view==="yours"} onClick={()=>setView("yours")}>Lo tuyo</Tab></Tabs>
+    <Feed>{view==="for-you"?(relevant.length>3?<ResonanceCard><CardIcon>⌁</CardIcon><CardCopy><b>{attention.summary||`Hay ${relevant.length} cosas que podrían interesarte`}</b><small>Tu red las agrupó para cuidar tu atención.</small></CardCopy><ViewLabel>Ver</ViewLabel></ResonanceCard>:relevant.length?relevant.slice(0,3).map(({dv})=>{const card=humanCard(dv);return <ResonanceCard key={text(dv?.id)} onClick={()=>openProfile(dv)}><CardIcon>{card.icon}</CardIcon><CardCopy><b>{card.title}</b><small>{card.detail}</small></CardCopy><ViewLabel>Ver perfil</ViewLabel></ResonanceCard>}):empty()):null}
+    {view==="near"?(nearby.length?nearby.map(dv=>{const card=humanCard(dv);return <ResonanceCard key={text(dv?.id)} onClick={()=>openProfile(dv)}><CardIcon>{card.icon}</CardIcon><CardCopy><b>{card.title}</b><small>{card.detail||"Actividad pública en tu territorio."}</small></CardCopy><ViewLabel>Ver perfil</ViewLabel></ResonanceCard>}):empty(true)):null}
+    {view==="yours"?(owned.length?owned.map(event=>{const refId=text(event?.attrs?.reference?.id);const reference=allLive.find(dv=>text(dv?.id)===refId);return <ResonanceCard key={text(event?.attrs?.frequencyId)} onClick={()=>selectOwned(event)}><CardIcon>⌁</CardIcon><CardCopy><b>{text(reference?.attrs?.title,reference?.attrs?.name,reference?.labels?.[0],"Mi frecuencia")}</b><small>{statusHuman(event?.attrs?.status)}</small></CardCopy><ViewLabel>Ver</ViewLabel></ResonanceCard>}):<Empty><span>⌁</span><strong>Todavía no hiciste resonar nada.</strong><small>Podés hablar o escribir lo que necesitás.</small></Empty>):null}</Feed>
+    {activeFrequency?<AskCard style={{marginTop:13,padding:16}}><b>{currentTitle}</b><span style={{fontSize:".8rem",color:"#66547f"}}>{statusHuman(activeFrequency?.attrs?.status)}</span><ActionRow><SoftButton onClick={shareFrequency}>Compartir</SoftButton><SoftButton onClick={()=>setShowQr(value=>!value)}>Mostrar QR Vivo</SoftButton><SoftButton onClick={()=>{onClose();navigate(`/market?tab=circular&frequencyId=${encodeURIComponent(activeFrequency.attrs.frequencyId)}`)}}>Ver en mapa</SoftButton>{activeFrequency?.attrs?.status==="active"?<SoftButton onClick={()=>changeFrequency("paused")}>Pausar</SoftButton>:null}{activeFrequency?.attrs?.status==="paused"?<SoftButton onClick={()=>changeFrequency("active")}>⌁ Reactivar</SoftButton>:null}{!["resolved","expired"].includes(text(activeFrequency?.attrs?.status))?<SoftButton onClick={()=>changeFrequency("resolved")}>Ya lo encontré ✓</SoftButton>:null}</ActionRow>{showQr?<div style={{width:190,padding:12,background:"white",borderRadius:16}}><QRCode value={frequencyQrReference(activeFrequency.attrs.frequencyId)} size={166}/></div>:null}</AskCard>:null}
+    <ModeSection><h3>¿Cómo querés que UTOPY te acompañe?</h3><Modes>{MODES.map(option=><Mode key={option.id} $active={mode===option.id} onClick={()=>chooseMode(option.id)}><b>{option.icon} {option.title}</b><small>{option.description}</small></Mode>)}</Modes></ModeSection>
+    <SettingsButton onClick={()=>setShowSettings(value=>!value)}><Settings2 size={15}/> Ajustar Frecuencia</SettingsButton>{showSettings?<Settings><span style={{fontSize:".78rem"}}>Modo actual: <b>{MODES.find(option=>option.id===mode)?.title}</b></span><SoftButton onClick={togglePush}>{enabled?"Pausar despertares":"Reactivar permisos"}</SoftButton></Settings>:null}{message?<Message role="status">{message}</Message>:null}
+  </Scroll></Sheet></Backdrop></Portal>
 }

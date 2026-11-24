@@ -3,6 +3,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import styled from "styled-components";
 import { useLocation, useNavigate } from "react-router-dom";
 import Sidebar from "../components/sidebar";
+import { formatRentalMoney, normalizeCurrency } from "../utils/rentalProperty";
+import { mtLiveSnapshot } from "../mt/mt.liveStore";
 
 const Container = styled.div`
   min-height: 100vh; width: 100vw;
@@ -44,10 +46,6 @@ const Label = styled.label`
 const WORKER_NEW_ORDER =
   "https://pagopar-worker.falconventas1.workers.dev/api/pagopar/new-order";
 
-// ✅ Tu RAW real (owners.json)
-const OWNER_RAW_URL_DEFAULT =
-  "https://raw.githubusercontent.com/CyberUtopyA/skylines/main/owners.json";
-
 // Email directo con FormSubmit
 async function sendDirectEmail({ to, subject, body }) {
   if (!to) return;
@@ -78,6 +76,7 @@ function Payment() {
     propertyId,
     roomId,
     amount: rawAmount,
+    currency: rawCurrency,
     startDate,
     endDate,
     userName,
@@ -99,12 +98,13 @@ function Payment() {
 
   const [amountNumber, setAmountNumber] = useState(0);
   const [loading, setLoading] = useState(false);
+  const currency = normalizeCurrency(rawCurrency);
 
   // ✅ Garantía por defecto (siempre 500.000 como pediste)
-  const GUARANTEE_DEFAULT = 500000;
+  const GUARANTEE_DEFAULT = Number(state?.contractDefaults?.deposito ?? 0);
 
   // ✅ pagaré: auto-true si garantía >= 1, pero editable por checkbox
-  const [enablePagare, setEnablePagare] = useState(true);
+  const [enablePagare, setEnablePagare] = useState(false);
 
   useEffect(() => {
     if (!propertyId || !roomId || !rawAmount || !startDate || !endDate) {
@@ -123,7 +123,7 @@ function Payment() {
 
   // ✅ auto set pagaré según garantía (si algún día cambiás el monto)
   useEffect(() => {
-    setEnablePagare(GUARANTEE_DEFAULT >= 1);
+    setEnablePagare(false);
   }, []);
 
   const normalizeDocumento = (doc) => {
@@ -141,36 +141,22 @@ function Payment() {
       null
     );
   }, [meta?.ownerId, state?.owner, ownerRaw?.id]);
+  const hasLegacyBankTransfer =
+    currency === "PYG" && ownerIdResolved === "6c44e912-c220-4f51-91dd-b317d639fc58";
 
   // ✅ pendingContract completo para utils/contrato.ts nuevo
-  const savePendingContractDraft = (montoGs) => {
+  const savePendingContractDraft = (amount) => {
     const documento = normalizeDocumento(userCI);
     const tenantEmail = isEmail(userEmail) ? userEmail.trim() : "";
 
-    const finalOwnerRawUrl = ownerRawUrl || OWNER_RAW_URL_DEFAULT;
-
-    const inmuebleDireccion = address?.trim() || "Km 2 Ruta 10 'Las Residentas'";
-    const inmuebleCiudad = city?.trim() || "Salto del Guairá, Canindeyú, Paraguay";
-    const inmuebleDesc =
-      description?.trim() ||
-      "Habitación amoblada (aire acondicionado, WiFi). Incluye servicios.";
-
-    const inventarioDefault =
-      "Cama y colchón (si aplica), aire acondicionado (si aplica), luminaria, tomas eléctricas. " +
-      "Cualquier mobiliario adicional queda sujeto al inventario de entrega.";
-
-    const lecturaMedidoresDefault =
-      "Servicios incluidos. No aplica lectura inicial de medidores, salvo acuerdo escrito.";
-
-    const clausulasExtraDefault =
-      "GARANTÍA: Gs. 500.000 exigible únicamente en caso de daños, faltantes, deterioro por mal uso " +
-      "o entrega del inmueble en condiciones distintas a las recibidas. Si la entrega final está en orden, " +
-      "la garantía no será exigida. RESCISIÓN: sin penalidad, con preaviso mínimo de 30 días y obligaciones al día.";
+    const inmuebleDireccion = address?.trim() || "";
+    const inmuebleCiudad = city?.trim() || "";
+    const inmuebleDesc = description?.trim() || "";
 
     const draft = {
       ownerRaw: ownerRaw || null,
-      ownerRawUrl: finalOwnerRawUrl || null,
-      meta: { ...(meta || {}), ownerId: ownerIdResolved },
+      ownerRawUrl: null,
+      meta: { ...(meta || {}), ownerId: ownerIdResolved, propertyId, unitId: meta?.unitId || roomId },
 
       tenant: {
         nombreCompleto: (userName || "").trim(),
@@ -192,25 +178,26 @@ function Payment() {
         inicio: startDate,
         fin: endDate,       // ✅ fin real
         plazoMeses: 6,      // ✅ 6 meses
-        moneda: "PYG",
-        canon: montoGs,
-        diaVencimiento: 5,
+        moneda: currency,
+        canon: amount,
+        diaVencimiento: "",
 
         // ✅ Garantía real para que contrato.ts la imprima
         deposito: GUARANTEE_DEFAULT,
 
-        incluyeServicios: "Agua, energía eléctrica, WiFi y recolección de basura",
-        politicaMascotas: "No se permiten",
-        lecturaMedidores: lecturaMedidoresDefault,
-        inventario: inventarioDefault,
-        clausulasAdicionales: clausulasExtraDefault,
+        incluyeServicios: "",
+        politicaMascotas: "",
+        lecturaMedidores: "",
+        inventario: "",
+        clausulasAdicionales: "",
+        ...(state?.contractDefaults||{}),
       },
 
       // ✅ PAGARÉ opcional (lo consume tu contrato.ts actualizado)
       pagare: {
         enabled: !!enablePagare,
         monto: GUARANTEE_DEFAULT,
-        moneda: "PYG",
+        moneda: currency,
         vencimiento: endDate || "",
         lugarPago: inmuebleCiudad,
         clausula:
@@ -224,6 +211,10 @@ function Payment() {
   // 1) Pagopar
   const startPagopar = async () => {
     try {
+      if (currency !== "PYG") {
+        alert("Este medio de pago solo está habilitado para PYG. La moneda contractual no fue modificada.");
+        return;
+      }
       setLoading(true);
 
       const monto = Math.max(1000, Math.round(amountNumber || 0));
@@ -257,7 +248,7 @@ function Payment() {
             roomId,
             startDate,
             endDate,
-            currency: "PYG",
+            currency,
             address: address || "",
             city: city || "",
             description: description || "",
@@ -308,7 +299,7 @@ function Payment() {
 
       savePendingContractDraft(monto);
 
-      const fmtGs = (n) => n.toLocaleString("es-PY") + " Gs";
+      const formatAmount = (n) => formatRentalMoney(n, currency);
       const renterEmail = isEmail(userEmail) ? userEmail : null;
 
       const ownerEmail =
@@ -327,7 +318,7 @@ Registramos tu pago por transferencia bancaria del alquiler:
 
 • Propiedad: ${propertyId} / Habitación: ${roomId}
 • Período: ${startDate} → ${endDate}
-• Monto: ${fmtGs(monto)}
+• Monto: ${formatAmount(monto)}
 
 Ahora podés generar el contrato en PDF desde la página de confirmación.
 
@@ -348,7 +339,7 @@ Un inquilino registró pago por transferencia:
 • Propiedad: ${propertyId}
 • Habitación: ${roomId}
 • Período: ${startDate} → ${endDate}
-• Monto: ${fmtGs(monto)}
+• Monto: ${formatAmount(monto)}
 
 Verificá el ingreso y coordiná la entrega/continuidad.
           `.trim(),
@@ -367,7 +358,7 @@ Nuevo pago por transferencia registrado:
 • Email inquilino: ${renterEmail || "-"}
 
 • Período: ${startDate} → ${endDate}
-• Monto: ${fmtGs(monto)}
+• Monto: ${formatAmount(monto)}
 
 Acción: verificar la transferencia y archivar comprobantes.
         `.trim(),
@@ -382,6 +373,56 @@ Acción: verificar la transferencia y archivar comprobantes.
     }
   };
 
+  const openEditableContract = async () => {
+    try {
+      setLoading(true);
+      let registry = {};
+      try { registry = JSON.parse(localStorage.getItem("skylines.owner.registry") || "{}"); } catch {}
+      const liveOwner = mtLiveSnapshot().find((item) => item?.kind === "skylines.owner.profile" && String(item?.id) === String(ownerIdResolved));
+      const selectedOwner =
+        ownerRaw ||
+        liveOwner?.attrs || registry?.[ownerIdResolved] ||
+        {};
+      localStorage.setItem("contratoDraft", JSON.stringify({
+        parteActual: "arrendador",
+        arrendador: {
+          nombreCompleto: selectedOwner?.nombreCompleto || "",
+          documento: selectedOwner?.documento || "",
+          domicilio: selectedOwner?.domicilio || "",
+          telefono: selectedOwner?.telefono || "",
+          email: selectedOwner?.email || "",
+        },
+        arrendatario: { nombreCompleto: "", documento: "", domicilio: "", telefono: "", email: "" },
+        inmueble: {
+          direccion: address?.trim() || "",
+          ciudad: city?.trim() || "",
+          tipo: "apartamento",
+          numeroUnidad: String(roomId || ""),
+          descripcion: description?.trim() || "",
+        },
+        contrato: {
+          canon: String(amountNumber || ""),
+          moneda: currency,
+          deposito: "",
+          diaVencimiento: "",
+          plazoMeses: "",
+          inicio: "",
+          incluyeServicios: "",
+          politicaMascotas: "",
+          lecturaMedidores: "",
+          inventario: "",
+          clausulasAdicionales: "",
+        },
+      }));
+      navigate("/contrato");
+    } catch (error) {
+      console.error("No se pudo preparar el contrato:", error);
+      alert("No se pudo cargar al propietario para preparar el contrato.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <Container>
       <Sidebar />
@@ -391,7 +432,7 @@ Acción: verificar la transferencia y archivar comprobantes.
         <p><strong>Propiedad:</strong> {propertyId} · <strong>Hab.:</strong> {roomId}</p>
         <p><strong>Período:</strong> {startDate} → {endDate}</p>
         <p style={{ marginTop: 8 }}>
-          Monto: <strong>{amountNumber.toLocaleString("es-PY")} Gs</strong>
+          Monto: <strong>{formatRentalMoney(amountNumber, currency)}</strong>
         </p>
 
         {/* ✅ pagaré opcional */}
@@ -408,7 +449,7 @@ Acción: verificar la transferencia y archivar comprobantes.
               Agregar pagaré (opcional)
             </Label>
             <span style={{ fontSize: 12, opacity: 0.85 }}>
-              Garantía: {GUARANTEE_DEFAULT.toLocaleString("es-PY")} Gs
+              Depósito libre para completar
             </span>
           </Row>
           <p style={{ marginTop: 10, fontSize: 12, opacity: 0.85 }}>
@@ -416,11 +457,15 @@ Acción: verificar la transferencia y archivar comprobantes.
           </p>
         </Box>
 
-        <Button onClick={startPagopar} disabled={loading}>
-          {loading ? "Creando pedido..." : "💳 Pagar"}
+        <Button onClick={openEditableContract} disabled={loading}>
+          Preparar contrato
         </Button>
 
-        <Box>
+        {currency === "PYG" ? <Button onClick={startPagopar} disabled={loading}>
+          {loading ? "Creando pedido..." : "💳 Pagar"}
+        </Button> : null}
+
+        {hasLegacyBankTransfer ? <Box>
           <h4>🧾 Datos para transferencia</h4>
           <p><strong>Alias:</strong> 7636446</p>
           <p><strong>Titular:</strong> Mateo Valentin Falcon Villalba</p>
@@ -432,7 +477,7 @@ Acción: verificar la transferencia y archivar comprobantes.
           <Button style={{ marginTop: 12 }} onClick={handleBankTransferConfirm} disabled={loading}>
             {loading ? "Registrando..." : "✅ Ya hice la transferencia"}
           </Button>
-        </Box>
+        </Box> : null}
 
         <Button style={{ background: "#333", marginTop: 16 }} onClick={() => navigate(-1)} disabled={loading}>
           Volver

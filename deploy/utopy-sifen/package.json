@@ -1,0 +1,34 @@
+{
+  "name": "utopy-sifen-sidecar",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "start": "node --experimental-sqlite src/server.mjs",
+    "test": "node --experimental-sqlite --test tests/*.test.mjs",
+    "test:sifen:integration": "node --experimental-sqlite --test tests/integration/*.test.mjs",
+    "fiscal:check-spec": "node scripts/spec.mjs check",
+    "fiscal:import-spec": "node scripts/spec.mjs import",
+    "fiscal:preflight": "node --experimental-sqlite scripts/test-flow.mjs preflight",
+    "sifen:test:build-document": "node --experimental-sqlite scripts/test-flow.mjs build-document",
+    "sifen:test:submit-fixture": "node --experimental-sqlite scripts/test-flow.mjs submit-fixture"
+  },
+  "dependencies": {
+    "@xmldom/xmldom": "^0.8.11",
+    "decimal.js": "^10.6.0",
+    "fflate": "^0.8.3",
+    "moment-timezone": "^0.6.3",
+    "pdfkit": "^0.20.2",
+    "qrcode": "^1.5.4",
+    "soap": "^1.12.0",
+    "xml-crypto": "^6.1.2",
+    "xmllint-wasm": "^5.0.0"
+  },
+  "devDependencies": {
+    "node-forge": "^1.4.0",
+    "pdfjs-dist": "^6.3.289"
+  }
+}

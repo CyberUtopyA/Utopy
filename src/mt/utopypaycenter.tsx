@@ -24,6 +24,9 @@ type Props = {
   ns?: string;  
   onlyOpen?: boolean;
   embedded?: boolean;
+  operatorId?: string | null;
+  operatorName?: string | null;
+  paymentMethods?: any[];
 };
 
 function safeStr(x: any, fb = "") {
@@ -179,10 +182,15 @@ function LiquidityMini({
       )}
 
       <Muted>
-        actor: {actorName || actorId} {canCover ? "· puede cubrir" : "· aún no cubre"}
+        {actorName || "Persona"} {canCover ? "· puede cubrir" : "· necesita otra ruta"}
       </Muted>
     </LiquidityBox>
   );
+}
+
+function methodLabel(method: any) {
+  if (typeof method === "string") return method;
+  return safeStr(method?.label || method?.channel || method?.kind || "Método");
 }
 
 export default function UtopyPayCenter({
@@ -191,6 +199,9 @@ export default function UtopyPayCenter({
   ns = "mt:market",
   onlyOpen = false,
   embedded = false,
+  operatorId = null,
+  operatorName = null,
+  paymentMethods = [],
 }: Props) {
   const [all, setAll] = useState<AnyDV[]>([]);
   const [search, setSearch] = useState("");
@@ -272,6 +283,8 @@ export default function UtopyPayCenter({
         all.filter(
           (d) =>
             isKind(d, "payment.outcome") &&
+            Boolean(d?.meta?.ownership?.signature?.value) &&
+            safeStr(d?.meta?.authority) === safeStr(d?.attrs?.actingAsNodeId) &&
             orderId &&
             safeStr(d?.attrs?.orderId) === orderId
         ),
@@ -382,8 +395,15 @@ export default function UtopyPayCenter({
           UTOPY Pay Center
         </EmbeddedTitle>
         <EmbeddedSummary>
-          Sesiones vivas, cola, asignación y revisión del cajero en turno.
+          🏪 Cobra {sellerName || sellerId} · 👤 atiende {operatorName || operatorId || "operador sin nombre"}.
+          El Pay Center elige únicamente rutas publicadas por el comercio.
         </EmbeddedSummary>
+        <MethodRow>
+          {(Array.isArray(paymentMethods) ? paymentMethods : []).map((method: any, index: number) => (
+            <MethodPill key={`${methodLabel(method)}:${index}`}>{methodLabel(method)}</MethodPill>
+          ))}
+          {!paymentMethods?.length ? <MethodPill>Sin métodos publicados</MethodPill> : null}
+        </MethodRow>
       </div>
 
       <StatsRow>
@@ -447,7 +467,7 @@ export default function UtopyPayCenter({
                 <Meta>
                   <span>session: {r.sessionId}</span>
                   {r.orderId && <span>order: {r.orderId}</span>}
-                  {r.threadId && <span>thread: {r.threadId}</span>}
+                  {import.meta.env.DEV && r.threadId && <span>thread: {r.threadId}</span>}
                 </Meta>
 
                 <Row>
@@ -459,20 +479,20 @@ export default function UtopyPayCenter({
                   {near && (
                     <MiniPill tone="green">
                       <Radar size={13} />
-                      buyer cerca
+                      comprador cerca
                     </MiniPill>
                   )}
 
                   {r.proofDV && (
                     <MiniPill tone="amber">
                       <RefreshCcw size={13} />
-                      proof recibido
+                      comprobante recibido
                     </MiniPill>
                   )}
                 </Row>
 
                 <Section>
-                  <SectionTitle>Método sugerido</SectionTitle>
+                  <SectionTitle>Ruta del comercio</SectionTitle>
                   <ValueRow>
                     <CreditCard size={14} />
                     <b>{safeStr(recommended?.label || recommended?.channel || "—")}</b>
@@ -559,6 +579,8 @@ const EmbeddedSummary = styled.div`
   opacity: 0.78;
   margin-top: 4px;
 `;
+const MethodRow = styled.div`display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;`;
+const MethodPill = styled.span`font-size:9px;font-weight:850;padding:5px 8px;border-radius:999px;background:#eef9f0;color:#256132;border:1px solid #d2ecd7;`;
 const TopBar = styled.div`
   display: flex;
   justify-content: space-between;

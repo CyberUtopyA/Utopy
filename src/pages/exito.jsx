@@ -3,6 +3,12 @@ import React, { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
 import styled from "styled-components";
 import { buildDraftFromInputs, generateContractPDFFromDraftWithQR } from "../utils/contrato";
+import { mtLiveSnapshot } from "../mt/mt.liveStore";
+import { activateRentalContract } from "../mt/rental.domain";
+import { createPrivateContract, createTemporaryContractCapability, freezePrivateContract } from "../mt/contract.private";
+import { resolveCurrentIdentityContext } from "../utopy/identityContext";
+import { verifyAdultForJurisdiction } from "../utopy/identityPersonal";
+import {rentalWhatsAppUrl,shareRentalPDF} from '../utils/rentalDelivery';
 
 // ==============================
 // UI
@@ -248,6 +254,10 @@ const JsonBox = styled.pre`
 `;
 
 const SigBox = styled.div`
+  box-sizing:border-box;
+  min-width:0;
+  backdrop-filter:blur(16px);
+  -webkit-backdrop-filter:blur(16px);
   margin-top: 18px;
   padding: clamp(16px, 3vw, 22px);
   border-radius: 28px;
@@ -281,6 +291,8 @@ const SigHeader = styled.div`
 `;
 
 const CanvasWrap = styled.div`
+  box-sizing:border-box;
+  min-width:0;
   position: relative;
   margin-top: 12px;
   width: 100%;
@@ -332,6 +344,10 @@ const Row = styled.div`
   flex-wrap: wrap;
   align-items: center;
   margin-top: 12px;
+  @media(max-width:640px){
+    > button, > label {width:100%;box-sizing:border-box;min-height:44px;}
+    input[type="file"]{max-width:100%;}
+  }
 `;
 
 const Label = styled.label`
@@ -437,8 +453,6 @@ const OwnerStatus = styled.span`
   font-weight: 850;
 `;
 
-const OWNER_FALLBACK_URL = "https://raw.githubusercontent.com/CyberUtopyA/skylines/main/alquileres.json";
-
 // Util: fetch URL -> dataURL
 async function urlToDataUrl(url) {
   const r = await fetch(url);
@@ -511,8 +525,12 @@ export default function Exitoso() {
   });
 
   const [draftState, setDraftState] = useState(null);
+  const [pendingState, setPendingState] = useState(null);
   const [ownerSig, setOwnerSig] = useState("");
   const [tenantSig, setTenantSig] = useState("");
+  const [pdfBusy,setPdfBusy]=useState(false);
+  const [generatedPDF,setGeneratedPDF]=useState(null);
+  const pdfInFlight=useRef(false);
 
   const ranRef = useRef(false);
 
@@ -563,41 +581,18 @@ export default function Exitoso() {
           return;
         }
         const pending = JSON.parse(raw);
+        setPendingState(pending);
 
         let ownerPicked = pending.ownerRaw || null;
         let ownerSource = null;
 
         if (!ownerPicked) {
-          const url = pending.ownerRawUrl || OWNER_FALLBACK_URL;
-          try {
-            const r = await fetch(url);
-            ownerSource = await r.json();
-
-            if (Array.isArray(ownerSource)) {
-              const ownerId = pending?.meta?.ownerId || pending?.meta?.propietarioId || null;
-              const propertyId = pending?.meta?.propertyId || null;
-
-              let candidate = null;
-              if (ownerId) {
-                candidate =
-                  ownerSource.find(
-                    (o) => String(o?.id || o?.ownerId || o?.propietarioId) === String(ownerId)
-                  ) || null;
-              }
-              if (!candidate && propertyId) {
-                candidate =
-                  ownerSource.find(
-                    (o) =>
-                      String(o?.propertyId || o?.propiedadId || o?.propiedad) === String(propertyId)
-                  ) || null;
-              }
-              ownerPicked = candidate || ownerSource[0] || {};
-            } else {
-              ownerPicked = ownerSource || {};
-            }
-          } catch {
-            ownerPicked = { nombreCompleto: "", documento: "", domicilio: "", email: "" };
-          }
+          const ownerId = pending?.meta?.ownerId || pending?.meta?.propietarioId || null;
+          let registry = {};
+          try { registry = JSON.parse(localStorage.getItem("skylines.owner.registry") || "{}"); } catch {}
+          const liveOwner = mtLiveSnapshot().find((item) => item?.kind === "skylines.owner.profile" && String(item?.id) === String(ownerId));
+          ownerPicked = liveOwner?.attrs || registry?.[ownerId] || { nombreCompleto: "", documento: "", domicilio: "", email: "" };
+          ownerSource = liveOwner ? "Identidad Viva" : "registro privado local";
         }
 
         const ownerNormalized = {
@@ -754,12 +749,23 @@ export default function Exitoso() {
   };
 
   const generateSignedPDF = async () => {
+    if(pdfInFlight.current)return;
+    pdfInFlight.current=true;setPdfBusy(true);
+    let stage="Verificar identidad";
     try {
       if (!draftState) return;
       if (!tenantSig) {
         alert("Falta la firma del inquilino. Dibujá y tocá 'Guardar firma' o subí una imagen.");
         return;
       }
+      const allLive = mtLiveSnapshot();
+      const identity = await resolveCurrentIdentityContext({ allLive });
+      const rentalMeta = pendingState?.meta || {};
+      const landlordActorId = String(rentalMeta.landlordActorId || rentalMeta.ownerId || "");
+      const tenantActorId = String(rentalMeta.tenantActorId || (identity.actorId !== landlordActorId ? identity.actorId : ""));
+      if (!tenantActorId) throw new Error("Vinculá la Identidad Viva del locatario antes de activar el contrato.");
+      const tenantAdult = await verifyAdultForJurisdiction(allLive, tenantActorId, { country: "PY", region: "Canindeyú", city: "Salto del Guairá" });
+      if (!tenantAdult.verified) throw new Error("El locatario todavía no tiene la mayoría de edad verificada.");
 
       const signedDraft = {
         ...draftState,
@@ -772,7 +778,24 @@ export default function Exitoso() {
       };
 
       setStatus("Generando contrato firmado…");
-      await generateContractPDFFromDraftWithQR(signedDraft);
+      const rental = rentalMeta;
+      let secureShareLink;
+      if (rental.propertyId && rental.unitId && rental.holdId) {
+        stage="Guardar contrato privado";
+        const contractId = pendingState?.contractId || `rental.contract:${rental.holdId}`;
+        const privateContract = await createPrivateContract({ contractId, state: "signed_by_tenant", ownerId: String(rental.ownerId || ""), propertyId: rental.propertyId, roomId: rental.unitId, landlordActorId, tenantActorId, authorizedAdminActorIds: [], document: { ...signedDraft, property: { propertyId: rental.propertyId, roomId: rental.unitId, name: pendingState?.property?.name || pendingState?.propertyName || "" } } });
+        stage="Preparar acceso privado del QR";
+        const capability = await createTemporaryContractCapability(privateContract.contractId, 20);
+        secureShareLink = capability.url;
+        if (ownerSig) {
+          stage="Activar contrato y verificar reserva";
+          await freezePrivateContract(privateContract.contractId, "active");
+          await activateRentalContract({ propertyId: rental.propertyId, unitId: rental.unitId, holdId: rental.holdId, contractId, tenantActorId, expectedRevision: Number(rental.expectedRevision || 2), periodStart: pendingState?.contrato?.inicio, periodEnd: pendingState?.contrato?.fin, allLive });
+        }
+      }
+      stage="Generar y descargar PDF";
+      const generated=await generateContractPDFFromDraftWithQR(signedDraft, secureShareLink);
+      setGeneratedPDF(generated);
 
       localStorage.removeItem("pendingContract");
       setDone(true);
@@ -783,8 +806,10 @@ export default function Exitoso() {
         draftFirmado: signedDraft,
       }));
     } catch (e) {
-      console.error(e);
-      setStatus("Error al generar el PDF firmado.");
+      const detail=e instanceof Error?e.message:"No se pudo completar este paso.";
+      setStatus(`${stage}: ${detail} Tu firma sigue cargada; podés reintentar.`);
+    } finally {
+      pdfInFlight.current=false;setPdfBusy(false);
     }
   };
 
@@ -882,8 +907,8 @@ export default function Exitoso() {
               )}
 
               <Row style={{ marginTop: 16 }}>
-                <PrimaryBtn onClick={generateSignedPDF} disabled={!tenantSig}>
-                  Generar PDF firmado 📄
+                <PrimaryBtn onClick={generateSignedPDF} disabled={!tenantSig||pdfBusy}>
+                  {pdfBusy?'Preparando contrato…':'Generar PDF firmado 📄'}
                 </PrimaryBtn>
 
                 <OwnerStatus>
@@ -898,7 +923,7 @@ export default function Exitoso() {
           </>
         )}
 
-        {done && <Button to="/falcon/skylines">Volver a Skylines</Button>}
+        {done && <><Row><Button to="/mis-contratos">Mis contratos y renovaciones</Button>{generatedPDF?<SmallBtn onClick={()=>void shareRentalPDF(generatedPDF).then(()=>setStatus('Se cerró el menú de compartir. Confirmá el envío en la aplicación elegida.')).catch(error=>{if(error?.name!=='AbortError')setStatus(error?.message||'No se pudo compartir. El PDF ya está descargado.');})}>Compartir PDF</SmallBtn>:null}<a href={rentalWhatsAppUrl()} target="_blank" rel="noopener noreferrer">Abrir WhatsApp de Mateo</a></Row><FooterNote>Compartí el PDF con WhatsApp y elegí el contacto. Si abrís el chat directamente, adjuntá el archivo descargado. No se envía automáticamente. Tus contratos se conservan en este navegador, con tu identidad; no borres sus datos.</FooterNote><Button to="/falcon/skylines">Volver a Skylines</Button></>}
       </Card>
     </Container>
   );

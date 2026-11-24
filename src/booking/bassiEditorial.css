@@ -1,0 +1,67 @@
+/* Reusable editorial salon presentation; never styles another node's preset. */
+.bassi-direct{min-height:100dvh;background:#151925;padding:12px}
+.living-booking[data-preset="bassi-editorial-salon"],.bassi-entry{--lb-bg:#151925;--lb-ink:#fff7e9;--lb-card:#f7eddf;--lb-accent:#e2b467;background:var(--lb-bg);color:var(--lb-ink);border-radius:24px}
+.living-booking[data-preset="bassi-editorial-salon"] h1{color:#fff7e9;text-align:center;font-size:clamp(32px,5vw,48px)}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-section-caption{text-align:center;color:#e6d7bc;letter-spacing:.06em;margin-top:-10px;font-size:14px}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-top{display:grid;grid-template-columns:44px minmax(0,1fr) 44px;gap:4px;min-height:54px;flex-wrap:nowrap;border-bottom:1px solid #c4ae7d33;padding-bottom:8px}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-breadcrumb{font-size:13px;color:#fff7e9;text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;justify-self:start}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-top>button{padding:8px;display:grid;place-items:center}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-hero{background:#151925;min-height:590px;border:1px solid #bea77644;margin-top:14px;align-items:flex-start;border-radius:24px}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-hero>img{object-position:center}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-hero:after{background:linear-gradient(180deg,#10152288 0%,#10152222 45%,#10152233 65%,#ead8bfdd 100%)}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-hero>.lb-hero-brand{top:8px;width:min(80%,310px);max-width:310px}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-hero-brand img{height:150px;object-fit:cover;object-position:center}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-hero>.lb-hero-copy{max-width:none;text-align:center;padding:165px 24px 24px;display:flex;flex-direction:column;align-items:center}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-hero h1{color:#fff9ed;font-size:clamp(36px,6vw,62px);margin:8px 0;max-width:none}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-hero-subtitle{color:#fff7e9;font-size:16px;letter-spacing:.06em;margin:8px 0}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-editorial-line{display:none}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-hero .lb-primary{margin-top:175px;width:min(100%,360px)}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-primary{background:linear-gradient(135deg,#f6d79b,#d8a14e);color:#141925;border:1px solid #f5d89e;font-weight:650;border-radius:30px;min-height:52px;box-shadow:0 4px 18px #05070c22}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-heading{margin:24px 0 12px}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-heading button{background:none;color:#f0cb83;border:0}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-category-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;padding:14px;background:#eadbc7;border-radius:23px}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-category-tiles button{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:8px;min-height:90px;padding:13px 6px;background:#f7ecdc;border:1px solid #d6c3a9;color:#171d2a}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-category-tiles button span{font-size:13px;overflow-wrap:anywhere}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-category-tiles button>svg:first-child{color:#866029}.living-booking[data-preset="bassi-editorial-salon"] .lb-category-tiles button>svg:last-child{display:none}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-categories{white-space:nowrap;scrollbar-width:thin;padding-bottom:9px;gap:8px}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-categories button{flex-shrink:0;background:#232735;color:#fff7e9;border:1px solid #63606a;border-radius:24px;font-size:13px;min-height:42px}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-categories [aria-pressed=true]{background:#f7ecda;border:2px solid #d5a251;color:#151925}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-service{background:#f9efe1;color:#172033;border:1px solid #e3cdb1;box-shadow:0 6px 22px #0002;border-radius:20px;gap:12px}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-service>img,.living-booking[data-preset="bassi-editorial-salon"] .lb-no-image{width:86px;height:94px;border-radius:14px}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-service b{font-size:16px}.living-booking[data-preset="bassi-editorial-salon"] .lb-service-meta{gap:6px;align-items:flex-start}.living-booking[data-preset="bassi-editorial-salon"] .lb-service-meta strong{font-weight:500}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-no-image{background:linear-gradient(135deg,#e8d6bb,#f9efdf);color:#866029}
+.living-booking[data-preset="bassi-editorial-salon"] :is(.lb-professional,.lb-appointment,.lb-confirm-body,.lb-service-details){background:#f7eddf;color:#192132;border-radius:22px;padding:20px}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-professional h2{color:#192132}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-reservation-intro{text-align:center;font-size:13px;color:#e4dbce;margin-top:-8px;margin-bottom:22px}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-reservation .uif-card{background:#f8eee0;border-color:#d8c7ae;color:#192132;box-shadow:0 4px 15px #080b1212}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-reservation .uif-card-toggle{color:#192132}.living-booking[data-preset="bassi-editorial-salon"] .uif-icon{color:#866029;background:#f0e1cb}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-reservation :is(.lb-calendar,.lb-time-panel){background:#fff7ed;color:#192132;border-color:#e0cdb3}
+.living-booking[data-preset="bassi-editorial-salon"] :is(.lb-slots button,.lb-calendar button){background:#fbf1e2;color:#192132;border-color:#d7c3a8;box-shadow:none}
+.living-booking[data-preset="bassi-editorial-salon"] :is(.lb-slots,.lb-calendar) button[aria-pressed=true]{background:#172033!important;color:#f8d68c!important;border-color:#d8af60!important}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-booking-action>small{color:#d6cbbb}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-readiness{background:#242a36;color:#e9ddc8;border-color:#7b684344;font-size:12px}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-menu{background:#f8eee0;color:#172033;border:1px solid #b69962}.living-booking[data-preset="bassi-editorial-salon"] .lb-menu a{color:#172033}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-bottom{background:#151925;border-top:1px solid #bba06b55;padding:12px 2px calc(12px + env(safe-area-inset-bottom));gap:4px}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-bottom :is(button,a){display:flex;flex:1;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-width:0;min-height:54px;padding:6px 3px;background:none;color:#fff6e6;border:0;border-radius:0;text-decoration:none;font-size:12px}
+.living-booking[data-preset="bassi-editorial-salon"] .lb-bottom [aria-current=page]{color:#f6d27f;border-bottom:2px solid #eac56e;background:none}
+.bassi-entry>header{text-align:center;padding:20px}.bassi-entry a{color:#f3ca83}
+/* A readable work surface, distinct from the dark public cover. */
+.bassi-entry,.living-booking.lb-manager[data-preset="bassi-editorial-salon"]{--lb-bg:#f8f5ef;--lb-ink:#182237;--lb-card:#ffffff;--lb-accent:#795323;background:#f8f5ef;color:#182237;color-scheme:light}
+.bassi-entry :is(.utopy-card,.ui-identity-flow,.ub-form){background:#fff;color:#182237;border-radius:22px;border:1px solid #d9d3c8;padding:20px}
+.bassi-entry :is(input,select,textarea),.living-booking.lb-manager[data-preset="bassi-editorial-salon"] :is(input,select,textarea){background:#fff;color:#182237;border:1px solid #a9acb2;accent-color:#795323}
+.bassi-entry :is(label,legend,summary,h1,h2,h3),.living-booking.lb-manager[data-preset="bassi-editorial-salon"] :is(label,legend,summary,h1,h2,h3){color:#182237}
+.bassi-entry :is(a,small),.living-booking.lb-manager[data-preset="bassi-editorial-salon"] :is(small,dt){color:#594a37}
+.bassi-entry :is(input,textarea)::placeholder,.living-booking.lb-manager[data-preset="bassi-editorial-salon"] :is(input,textarea)::placeholder{color:#656875;opacity:1}
+.bassi-management-brand>img{display:block;width:260px;height:135px;object-fit:cover;object-position:center;margin:0 auto;background:#151925;border-radius:22px}.bassi-management-brand h1{font-size:32px;margin:18px 0 6px}.bassi-management-brand p{color:#4a5160}
+.living-booking.lb-manager[data-preset="bassi-editorial-salon"] fieldset{background:#fff;color:#182237;border:1px solid #d9d3c8;min-width:0;padding:18px;border-radius:20px}
+.living-booking.lb-manager[data-preset="bassi-editorial-salon"] .lb-manager-body{background:transparent;border:0;padding:0;opacity:1}
+.living-booking.lb-manager[data-preset="bassi-editorial-salon"] .lb-manager-body:disabled{opacity:1}
+.living-booking.lb-manager[data-preset="bassi-editorial-salon"] .lb-categories button{background:#fff;color:#182237;border-color:#bdb8ad}
+.living-booking.lb-manager[data-preset="bassi-editorial-salon"] .lb-categories [aria-pressed=true]{background:#182237;color:#fff7e9;border-color:#182237}
+.living-booking.lb-manager[data-preset="bassi-editorial-salon"] :is(.lb-resource-schedule,.lb-block-composer,.lb-saved-blocks,.lb-calendar,.lb-appointment){background:#fff;color:#182237;border-color:#d9d3c8;box-shadow:none}
+.living-booking.lb-manager[data-preset="bassi-editorial-salon"] .lb-notice{background:#eee3cc;color:#382d1f}
+.living-booking.lb-manager[data-preset="bassi-editorial-salon"] button:disabled{opacity:.7}
+@media(hover:hover) and (prefers-reduced-motion:no-preference){.living-booking[data-preset="bassi-editorial-salon"] :is(.lb-primary,.lb-category-tiles button){transition:transform .12s ease}.living-booking[data-preset="bassi-editorial-salon"] :is(.lb-primary,.lb-category-tiles button):active{transform:translateY(1px)}}
+@media(max-width:650px){.bassi-direct{padding:0}.living-booking[data-preset="bassi-editorial-salon"]{padding:12px 12px 10px;border-radius:0;min-height:100dvh}.living-booking[data-preset="bassi-editorial-salon"] .lb-category-tiles{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;padding:10px}.living-booking[data-preset="bassi-editorial-salon"] .lb-category-tiles button{font-size:12px}.living-booking[data-preset="bassi-editorial-salon"] .lb-top .lb-breadcrumb{font-size:12px}.living-booking[data-preset="bassi-editorial-salon"] .lb-hero{min-height:535px}.living-booking[data-preset="bassi-editorial-salon"] .lb-hero .lb-primary{margin-top:145px}.living-booking[data-preset="bassi-editorial-salon"] .lb-service{padding:10px;gap:10px}.living-booking[data-preset="bassi-editorial-salon"] .lb-bottom{margin-bottom:0}}
+@media(max-width:360px){.living-booking[data-preset="bassi-editorial-salon"] .lb-service>img,.living-booking[data-preset="bassi-editorial-salon"] .lb-no-image{width:64px;height:82px}.living-booking[data-preset="bassi-editorial-salon"] .lb-service b{font-size:14px}}
+@media(prefers-reduced-motion:reduce){.living-booking[data-preset="bassi-editorial-salon"] *{transition:none!important;animation:none!important}}

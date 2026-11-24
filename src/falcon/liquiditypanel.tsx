@@ -63,7 +63,7 @@ export default function FalconLiquidityPanel({
             Liquidez disponible
           </div>
           <div className="mt-1 text-xl font-black text-slate-950">
-            {actorName || actorId}
+            {actorName || "Persona"}
           </div>
           <div className="mt-1 text-sm text-slate-600">
             Usá saldo, reserva o crédito sin salir del checkout.

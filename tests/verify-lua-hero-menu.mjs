@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {transformWithEsbuild} from 'vite';
+const lua=readFileSync('src/pages/LuaPage.tsx','utf8'),booking=readFileSync('src/booking/BookingExperience.tsx','utf8');
+assert.match(lua,/heroFallback=\{luaHero\}/);assert.match(lua,/manageHref="\/lua\/gestionar"/);
+assert.match(booking,/const heroImage=config.presentation.hero\|\|heroFallback/);
+assert.match(booking,/to=\{managementUrl\}>Gestionar/);assert.match(booking,/MoreHorizontal strokeWidth/);
+const png=readFileSync('src/assets/lua-spa-hero-v1.png');assert.equal(png.subarray(0,8).toString('hex'),'89504e470d0a1a0a');assert.ok(png.readUInt32BE(16)>=1024);
+for(const file of ['src/pages/LuaPage.tsx','src/booking/BookingExperience.tsx'])await transformWithEsbuild(readFileSync(file,'utf8'),file,{loader:'tsx'});
+console.log('OK: local PNG asset, node-owned hero precedence, LUA-specific fallback, three-dot menu and direct protected management route; TSX. Browser visual QA not claimed.');

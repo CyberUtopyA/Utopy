@@ -1,6 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import styled from "styled-components";
 import Sidebar from "../components/sidebar";
+import { mtLiveSnapshot } from "../mt/mt.liveStore";
+import { requireVerifiedAdult } from "../mt/rental.domain";
+import { createPrivateContract } from "../mt/contract.private";
+import ContractCanvas from '../components/ContractCanvas';
 
 /**
  * CONTRATO: flujo sin login ni base de datos
@@ -12,10 +16,11 @@ import Sidebar from "../components/sidebar";
 
 // ===== Estilos base (reusa la estética de tu Login) =====
 const GlassContainer = styled.div`
-  height: 100vh;
-  width: 100vw;
+  min-height: 100dvh;
+  width: 100%;
   background: linear-gradient(145deg, #0f2027, #203a43, #2c5364);
   display: flex;
+  @media(max-width:900px){ flex-direction:column; }
 `;
 
 const BodyWrap = styled.div`
@@ -25,6 +30,8 @@ const BodyWrap = styled.div`
   align-items: flex-start;
   padding: 32px 24px;
   overflow: auto;
+  min-width: 0;
+  @media(max-width:640px){padding:12px 10px calc(24px + env(safe-area-inset-bottom));}
 `;
 
 const Card = styled.div`
@@ -37,6 +44,9 @@ const Card = styled.div`
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
   border: 1px solid rgba(255, 255, 255, 0.3);
   color: #fff;
+  box-sizing:border-box;
+  min-width:0;
+  @media(max-width:640px){padding:18px 14px;border-radius:22px;}
 `;
 
 const Title = styled.h2`
@@ -56,14 +66,18 @@ const Row = styled.div`
 
 const Col = styled.div<{ span?: number }>`
   grid-column: span ${(p) => p.span || 12};
+  min-width:0;
+  @media(max-width:900px){grid-column:1 / -1;}
 `;
 
 const Input = styled.input`
+  box-sizing:border-box;
+  min-width:0;
   width: 100%;
   padding: 10px 12px;
   border: none;
   border-radius: 10px;
-  font-size: 15px;
+  font-size: 16px;
   background-color: rgba(255, 255, 255, 0.2);
   color: #fff;
   &::placeholder { color: #ccc; }
@@ -71,11 +85,12 @@ const Input = styled.input`
 `;
 
 const TextArea = styled.textarea`
+  box-sizing:border-box;
   width: 100%;
   padding: 10px 12px;
   border: none;
   border-radius: 10px;
-  font-size: 15px;
+  font-size: 16px;
   background-color: rgba(255, 255, 255, 0.2);
   color: #fff;
   min-height: 96px;
@@ -91,6 +106,8 @@ const Label = styled.label`
 `;
 
 const Button = styled.button<{ variant?: "solid" | "ghost" }>`
+  min-height:44px;
+  @media(max-width:640px){width:100%;white-space:normal;}
   padding: 12px 16px;
   border: ${(p) => (p.variant === "ghost" ? "1px solid rgba(255,255,255,0.5)" : "none")};
   border-radius: 14px;
@@ -144,10 +161,14 @@ type DatosPersona = {
 };
 
 type DatosInmueble = {
+  propertyId?: string;
+  roomId?: string;
+  nombre?: string;
   direccion: string;
   ciudad: string;
   tipo: string; // dpto, monoambiente, casa, etc.
   numeroUnidad?: string;
+  piso?: string;
   descripcion?: string;
 };
 
@@ -163,6 +184,12 @@ type DatosContrato = {
   lecturaMedidores?: string; // opcional
   inventario?: string; // opcional
   clausulasAdicionales?: string; // opcional
+  regimenMora?: string;
+  condicionesGarantia?: string;
+  preaviso?: string;
+  jurisdiccion?: string;
+  obligacionesLocador?: string;
+  obligacionesLocatario?: string;
 };
 
 export type Draft = {
@@ -171,6 +198,7 @@ export type Draft = {
   arrendatario: DatosPersona;
   inmueble: DatosInmueble;
   contrato: DatosContrato;
+  rental?: { contractId?: string; holdId?: string; propertyId?: string; unitId?: string; ownerId?: string; landlordActorId?: string; expectedRevision?: number };
 };
 
 const baseDraft: Draft = {
@@ -232,6 +260,7 @@ function ContratoPreview({ data }: { data: Draft }) {
   return (
     <PreviewWrap>
       <h3 style={{ marginTop: 0 }}>Contrato de Arrendamiento</h3>
+      {inmueble.nombre && <p><b>Propiedad:</b> {inmueble.nombre}{inmueble.numeroUnidad ? ` · Unidad ${inmueble.numeroUnidad}` : ""}{inmueble.piso ? ` · ${inmueble.piso}` : ""}</p>}
       <p>
         Entre <b>{arrendador.nombreCompleto || "[Arrendador]"}</b>, CI/RUC {arrendador.documento || "[doc]"}, con domicilio en {arrendador.domicilio || "[domicilio]"}, teléfono {arrendador.telefono || "[tel]"}, correo {arrendador.email || "[email]"} (en adelante, el <b>ARRENDADOR</b>);
         y <b>{arrendatario.nombreCompleto || "[Arrendatario]"}</b>, CI/RUC {arrendatario.documento || "[doc]"}, con domicilio en {arrendatario.domicilio || "[domicilio]"}, teléfono {arrendatario.telefono || "[tel]"}, correo {arrendatario.email || "[email]"} (en adelante, el <b>ARRENDATARIO</b>), se celebra el presente contrato sobre el inmueble ubicado en {inmueble.direccion || "[dirección]"}, {inmueble.ciudad || "[ciudad]"}, tipo {inmueble.tipo || "[tipo]"}{inmueble.numeroUnidad ? `, unidad ${inmueble.numeroUnidad}` : ""}.
@@ -310,7 +339,9 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 export default function Contrato() {
   const [data, setData] = useState<Draft>(baseDraft);
   const [showPreview, setShowPreview] = useState(false);
+  const [canvasMode,setCanvasMode]=useState(true);
   const [shareLink, setShareLink] = useState<string>("");
+  const [identityNotice, setIdentityNotice] = useState("");
 
   // Cargar de URL si hay #contrato=...
   useEffect(() => {
@@ -350,12 +381,27 @@ export default function Contrato() {
     navigator.clipboard?.writeText(url).catch(() => {});
   };
 
+  const withAdultIdentity = async (action: () => void) => {
+    if (!data.inmueble.propertyId && !data.rental?.propertyId) { action(); return; }
+    try {
+      const allLive = mtLiveSnapshot();
+      const { identity } = await requireVerifiedAdult(allLive);
+      if (data.rental?.contractId && data.rental?.propertyId && data.rental?.unitId) await createPrivateContract({ contractId: data.rental.contractId, state: "ready_to_sign", ownerId: data.rental.ownerId || "", propertyId: data.rental.propertyId, roomId: data.rental.unitId, landlordActorId: data.rental.landlordActorId || data.rental.ownerId || "", tenantActorId: identity.actorId, authorizedAdminActorIds: [], document: data });
+      setIdentityNotice(""); action();
+    }
+    catch (error: any) { setIdentityNotice(error?.message || "Necesitás verificar tu mayoría de edad en Identidad Viva."); }
+  };
+
   return (
     <GlassContainer>
       <Sidebar />
       <BodyWrap>
         <Card>
-          <Title>Contrato de Alquiler • Sin login / Sin BD</Title>
+          <Title>Contrato de alquiler</Title>
+          <Button type="button" variant="ghost" onClick={()=>setCanvasMode(!canvasMode)}>{canvasMode?'Formulario avanzado':'Volver al documento'}</Button>
+          {canvasMode?<ContractCanvas data={data} onChange={setData}/>:null}
+          <div hidden={canvasMode}>
+          {data.arrendador.nombreCompleto&&data.parteActual==='arrendatario'?<Help>Locador y condiciones preparados. Completá los datos del inquilino y revisá unidad, fechas e importe antes de firmar. Esto no concede permisos de administración ni sustituye la verificación de identidad.</Help>:null}
 
           <Segmented aria-label="Seleccionar parte">
             {(["arrendador", "arrendatario"] as Parte[]).map((p) => (
@@ -426,6 +472,24 @@ export default function Contrato() {
 
           {/* Datos del inmueble */}
           <Row>
+            <Col span={8}>
+              <Field label="Propiedad">
+                <Input
+                  value={data.inmueble.nombre || ""}
+                  onChange={(e) => updateInmueble("nombre", e.target.value)}
+                  placeholder="Nombre de la propiedad"
+                />
+              </Field>
+            </Col>
+            <Col span={4}>
+              <Field label="Piso">
+                <Input
+                  value={data.inmueble.piso || ""}
+                  onChange={(e) => updateInmueble("piso", e.target.value)}
+                  placeholder="Ej: segundo piso"
+                />
+              </Field>
+            </Col>
             <Col span={8}>
               <Field label="Dirección del inmueble">
                 <Input
@@ -576,19 +640,29 @@ export default function Contrato() {
                 />
               </Field>
             </Col>
+            {[
+              ["Régimen de mora", "regimenMora", "Condición acordada; no se aplica un porcentaje universal."],
+              ["Condiciones de garantía y devolución", "condicionesGarantia", "Cuándo puede aplicarse y cómo se devuelve."],
+              ["Preaviso para terminación", "preaviso", "Plazo acordado entre las partes."],
+              ["Jurisdicción", "jurisdiccion", "Salto del Guairá, Canindeyú, Paraguay"],
+              ["Obligaciones del locatario", "obligacionesLocatario", "Uso, conservación, comunicación de averías y restitución."],
+              ["Obligaciones del locador", "obligacionesLocador", "Entrega, reparaciones correspondientes y reconocimiento de pagos."],
+            ].map(([label, field, placeholder]) => <Col span={6} key={field}><Field label={label}><TextArea value={String(data.contrato[field as keyof DatosContrato] || "")} onChange={(e) => updateContrato(field as keyof DatosContrato, e.target.value)} placeholder={placeholder}/></Field></Col>)}
           </Row>
 
+          </div>
           <Row style={{ marginTop: 16, alignItems: "center" }}>
             <Col span={4}>
-              <Button onClick={() => setShowPreview(true)}>Generar vista previa</Button>
+              <Button onClick={() => void withAdultIdentity(() => setShowPreview(true))}>Generar vista previa</Button>
             </Col>
             <Col span={4}>
-              <Button variant="ghost" onClick={() => window.print()}>Imprimir / Guardar PDF</Button>
+              <Button variant="ghost" onClick={() => void withAdultIdentity(() => window.print())}>Imprimir / Guardar PDF</Button>
             </Col>
             <Col span={4}>
               <Button variant="ghost" onClick={generarEnlace}>Crear enlace compartible</Button>
             </Col>
             <Col span={12}>
+              {identityNotice ? <Help>{identityNotice}</Help> : null}
               {shareLink && (
                 <Help>
                   Enlace copiado. Si alguien abre este link, verá el contrato cargado: <br/>

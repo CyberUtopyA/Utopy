@@ -6,6 +6,7 @@
 // ✅ Asegura dv.meta.ts/emitter/source/scopes para index/consenso/trust
 
 import type { DatoVivo } from "./mt.traitAdapter";
+import { mtLiveRevisionHash } from "./mt.liveStore";
 
 const RAW_WS =
   (import.meta as any).env?.VITE_UTOPY_WS ?? "wss://seed.mterra.space/utopy";
@@ -74,6 +75,8 @@ const MAX_QUEUE = 1000;
 
 // Cola en memoria (envelopes)
 const queue: DvUpsertEnvelope[] = [];
+const recentSent = new Map<string, string>();
+const MAX_RECENT_SENT = 5000;
 
 // Persist opcional de cola
 const QUEUE_KEY = "mt.web.seedbus.queue.v3";
@@ -83,7 +86,7 @@ const PERSIST_QUEUE = true;
 // Helpers
 // --------------------------
 function log(...args: any[]) {
-  console.log("[MT web] seedbus:", ...args);
+  if (import.meta.env.DEV) console.debug("[MT web] seedbus:", ...args);
 }
 function warn(...args: any[]) {
   console.warn("[MT web] seedbus:", ...args);
@@ -349,6 +352,12 @@ function ensureWs(): Promise<WebSocket> {
 export async function publishDatoVivo(d: DatoVivo): Promise<void> {
   if (!d || typeof d !== "object") return;
   if (!(d as any).id || !(d as any).kind) return;
+
+  const id = String((d as any).id);
+  const hash = mtLiveRevisionHash(d);
+  if (recentSent.get(id) === hash) return;
+  recentSent.set(id, hash);
+  while (recentSent.size > MAX_RECENT_SENT) recentSent.delete(recentSent.keys().next().value);
 
   const env = wrapUpsert(d);
 

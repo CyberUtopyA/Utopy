@@ -1,3 +1,4 @@
+import "@google/model-viewer";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import styled from "styled-components";
 import {
@@ -14,14 +15,17 @@ import {
   UserRound,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { verifiedRentalIdentityFields } from "../mt/rentalIdentity";
 import Sidebar from "../components/sidebar";
-import SearchBar from "../components/search";
+import { asRentalMoneyNumber, buildRentalContractDraft, formatRentalMoney, rentalMonthlyPrice } from "../utils/rentalProperty";
+import { mtLiveSnapshot, mtLiveSubscribe } from "../mt/mt.liveStore";
+import { createPendingIdentityReservation, createRentalHold, projectRentalProperties, requireVerifiedAdult, resolveRentalActorRole, setRentalUnitAvailability } from "../mt/rental.domain";
+import { ensureSkylinesRentalIdentityReady } from "../mt/skylines.rentals";
+import { verifyAdultForJurisdiction } from "../utopy/identityPersonal";
+const PrivateIdentityEditor = lazy(() => import("../social/LiveNetworkPanel"));
 
 const PROFILE_KEY = "authUser";
-
-const RENTALS_RAW_URL =
-  "https://raw.githubusercontent.com/CyberUtopyA/skylines/main/alquileres.json";
 
 const toDate = (v) => new Date(v + "T00:00:00");
 
@@ -60,7 +64,6 @@ const openGoogleMaps = ({ location, address, city, name }) => {
   const coords = getLatLng(location);
 
   if (!coords) {
-    alert("Esta propiedad todavía no tiene coordenadas exactas cargadas.");
     return;
   }
 
@@ -72,7 +75,6 @@ const openWaze = ({ location }) => {
   const coords = getLatLng(location);
 
   if (!coords) {
-    alert("Esta propiedad todavía no tiene coordenadas exactas cargadas.");
     return;
   }
 
@@ -85,30 +87,6 @@ const diffMonths = (start, end) => {
   return (
     (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth())
   );
-};
-
-const asMoneyNumber = (value) => {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-
-  if (typeof value === "string") {
-    const cleaned = value.replace(/[^\d.,-]/g, "").replace(/\./g, "");
-    const normalized = cleaned.replace(",", ".");
-    const n = Number(normalized);
-    return Number.isFinite(n) ? n : null;
-  }
-
-  return null;
-};
-
-const formatMoney = (amount, currency = "PYG") => {
-  const numeric = asMoneyNumber(amount);
-  if (numeric == null) return "Consultar precio";
-
-  if (currency === "PYG") {
-    return `${numeric.toLocaleString("es-PY")} Gs`;
-  }
-
-  return `${numeric.toLocaleString("es-PY")} ${currency}`;
 };
 
 const normalizeText = (value) => {
@@ -138,7 +116,10 @@ const uniquePhotos = (...items) => {
 
   const buildRoomStateFromProperty = (property, room) => {
   return {
-    room,
+    room: {
+      ...room,
+      photos: uniquePhotos(room?.photos || [], property?.photos || [], property?.image || ""),
+    },
     name: property?.name || property?.title || "Propiedad",
     price: room?.price ?? property?.price,
     image: room?.image || room?.photos?.[0] || property?.image || "",
@@ -147,7 +128,7 @@ const uniquePhotos = (...items) => {
     owner: property?.owner_id || property?.ownerId || property?.owner,
     currency: room?.currency || property?.currency || "PYG",
     address: property?.address || "",
-    city: property?.city || "Salto del Guairá, Canindeyú, Paraguay",
+    city: property?.city || "",
     propertyLocation: property?.location || null,
     ownerRaw: property?.ownerRaw || null,
   };
@@ -157,6 +138,7 @@ function RoomDetailPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const params = useParams();
+  const insideFalcon = location.pathname.startsWith("/falcon/");
 
   const urlPropertyId = params.propertyId;
   const urlRoomNumber = params.roomNumber || params.roomId || params.pieza;
@@ -165,7 +147,7 @@ function RoomDetailPage() {
   const [loadingRoom, setLoadingRoom] = useState(false);
   const [rawError, setRawError] = useState("");
 
-  const pageState = location.state || rawRoomState || {};
+  const pageState = rawRoomState ? {...location.state,...rawRoomState,ownerRaw:rawRoomState.ownerRaw||location.state?.ownerRaw} : location.state || {};
 
  const {
   room,
@@ -187,57 +169,76 @@ function RoomDetailPage() {
   const [showModal, setShowModal] = useState(false);
   const [activePhotoIndex, setActivePhotoIndex] = useState(0);
   const [shareStatus, setShareStatus] = useState("");
+  const [flowError, setFlowError] = useState("");
+  const [identityGate, setIdentityGate] = useState(null);
+  const [inlineIdentity, setInlineIdentity] = useState(false);
+  const [reservationActor, setReservationActor] = useState(null);
+  const directReservationStarted = useRef(false);
+  const [canManageRental,setCanManageRental]=useState(false);
+  const [availabilityBusy,setAvailabilityBusy]=useState(false);
+  useEffect(()=>{
+    let active=true,revision=0;
+    const refresh=async()=>{const request=++revision;setCanManageRental(false);try{const access=await resolveRentalActorRole(mtLiveSnapshot(),String(owner||''));if(active&&request===revision)setCanManageRental(['landlord','authorized_admin'].includes(access.role));}catch{}};
+    void refresh();const unsubscribe=mtLiveSubscribe(()=>void refresh());
+    window.addEventListener('utopy.wallet.changed',refresh);
+    return()=>{active=false;revision++;unsubscribe();window.removeEventListener('utopy.wallet.changed',refresh);};
+  },[owner]);
+  const changeAvailability=async()=>{
+    if(availabilityBusy)return;
+    if(!window.confirm(room?.available?'¿Pausar la disponibilidad de esta unidad?':'¿Publicar esta unidad como disponible?'))return;
+    setAvailabilityBusy(true);setFlowError('');
+    try{await setRentalUnitAvailability({propertyId:String(propertyId),unitId:String(room?.id||room?.roomId||room?.number||''),ownerId:String(owner||''),expectedRevision:Number(room?.revision??0),available:!room?.available});}
+    catch(error){setFlowError(error?.message||'No se pudo cambiar la disponibilidad.');}
+    finally{setAvailabilityBusy(false);}
+  };
 
   const [tenantName, setTenantName] = useState("");
   const [tenantCI, setTenantCI] = useState("");
   const [tenantAddress, setTenantAddress] = useState("");
   const [tenantEmail, setTenantEmail] = useState("");
 
+  const prefillPrivateIdentity = async () => {
+    const allLive = mtLiveSnapshot();
+    const role = await resolveRentalActorRole(allLive, String(owner || ""));
+    const fields = await verifiedRentalIdentityFields(allLive, role.identity.actorId);
+    if (fields) { setTenantName(fields.name); setTenantCI(fields.document); setTenantAddress(fields.address); }
+  };
+
   useEffect(() => {
+    const pending = sessionStorage.getItem("skylines.pendingReservation");
+    if (!pending) return;
     try {
-      const raw = localStorage.getItem(PROFILE_KEY);
-      if (raw) {
-        const p = JSON.parse(raw);
-        if (p?.name) setTenantName(p.name);
-        if (p?.ci) setTenantCI(p.ci);
-        if (p?.address) setTenantAddress(p.address);
-        if (p?.email) setTenantEmail(p.email);
-      }
+      const value = JSON.parse(pending);
+      const currentUnitId = String(room?.id || room?.roomId || room?.number || "");
+      if (value?.propertyId !== String(propertyId) || value?.unitId !== currentUnitId) return;
+      void (async () => {
+        const allLive = mtLiveSnapshot();
+        const role = await resolveRentalActorRole(allLive, String(owner || ""));
+        const adult = await verifyAdultForJurisdiction(allLive, role.identity.actorId, { country: "PY", region: "Canindeyú", city: "Salto del Guairá" });
+        if (adult.verified) { await prefillPrivateIdentity(); sessionStorage.removeItem("skylines.pendingReservation"); setIdentityGate(null); setShowModal(true); }
+      })();
     } catch {}
-  }, []);
+  }, [owner, propertyId, room?.id, room?.number, room?.roomId]);
 
   useEffect(() => {
-    if (location.state?.room) return;
-    if (!urlPropertyId || !urlRoomNumber) return;
+    const livePropertyId = urlPropertyId || location.state?.propertyId;
+    const liveRoomNumber = urlRoomNumber || location.state?.room?.number;
+    if (!livePropertyId || liveRoomNumber == null) return;
 
-    let alive = true;
-
-    const loadRoomFromRaw = async () => {
-      try {
+    const loadRoomFromLive = (allLive) => {
         setRawError("");
         setLoadingRoom(true);
-
-        const res = await fetch(RENTALS_RAW_URL, {
-          cache: "no-store",
-        });
-
-        if (!res.ok) {
-          throw new Error(`No se pudo cargar el raw: ${res.status}`);
-        }
-
-        const data = await res.json();
-        const rentals = getRentalList(data);
-
-        const property = rentals.find(
-          (item) => normalizeText(item?.id) === normalizeText(urlPropertyId)
+        const property = projectRentalProperties(allLive).find(
+          (item) => normalizeText(item?.id) === normalizeText(livePropertyId)
         );
 
         if (!property) {
-          if (alive) setRawError("No se encontró la propiedad en el raw.");
+          setRawError("No se encontró la propiedad viva.");
+          setLoadingRoom(false);
           return;
         }
 
-        const wantedRoom = normalizeText(urlRoomNumber);
+        const wantedRoom = normalizeText(liveRoomNumber);
 
         const foundRoom = (property?.rooms || []).find((r) => {
           const roomNumber = normalizeText(r?.number);
@@ -246,56 +247,44 @@ function RoomDetailPage() {
         });
 
         if (!foundRoom) {
-          if (alive) setRawError("No se encontró esta pieza en la propiedad.");
+          setRawError("No se encontró esta unidad viva.");
+          setLoadingRoom(false);
           return;
         }
-
-        if (alive) {
-          setRawRoomState(buildRoomStateFromProperty(property, foundRoom));
-        }
-      } catch (err) {
-        console.error("Error cargando habitación desde raw:", err);
-        if (alive) {
-          setRawError("No se pudo cargar la habitación desde el raw.");
-        }
-      } finally {
-        if (alive) setLoadingRoom(false);
-      }
+        setRawRoomState(buildRoomStateFromProperty(property, foundRoom));
+        setLoadingRoom(false);
     };
-
-    loadRoomFromRaw();
-
-    return () => {
-      alive = false;
-    };
+    loadRoomFromLive(mtLiveSnapshot());
+    return mtLiveSubscribe(loadRoomFromLive);
   }, [location.state, urlPropertyId, urlRoomNumber]);
 
   useEffect(() => {
     setActivePhotoIndex(0);
   }, [room?.number, propertyId]);
 
-  const saveTenantLocal = (profile) => {
-    let prev = {};
-    try {
-      const raw = localStorage.getItem(PROFILE_KEY);
-      prev = raw ? JSON.parse(raw) : {};
-    } catch {}
-    const next = { ...prev, ...profile };
-    localStorage.setItem(PROFILE_KEY, JSON.stringify(next));
-  };
 
   const effectivePrice = useMemo(() => {
     return (
-      asMoneyNumber(room?.price) ??
-      asMoneyNumber(room?.monthly_price) ??
-      asMoneyNumber(room?.precio) ??
-      asMoneyNumber(price)
+      asRentalMoneyNumber(room?.price) ??
+      asRentalMoneyNumber(room?.monthly_price) ??
+      asRentalMoneyNumber(room?.precio) ??
+      asRentalMoneyNumber(price)
     );
   }, [room, price]);
 
   const effectiveCurrency = useMemo(() => {
     return room?.currency || room?.moneda || currency || "PYG";
   }, [room, currency]);
+
+  const selectedMonths = useMemo(() => {
+    if (!startDate || !endDate || endDate < startDate) return 0;
+    return diffMonths(startDate, endDate);
+  }, [startDate, endDate]);
+
+  const reservationPrice = useMemo(
+    () => rentalMonthlyPrice(room, selectedMonths) ?? effectivePrice,
+    [room, selectedMonths, effectivePrice],
+  );
 
   const roomPhotos = useMemo(() => {
     return uniquePhotos(room?.image, room?.photos || [], image);
@@ -304,6 +293,11 @@ function RoomDetailPage() {
   const roomMainImage = useMemo(() => {
     return roomPhotos[activePhotoIndex] || roomPhotos[0] || image || "";
   }, [roomPhotos, activePhotoIndex, image]);
+  const roomVideo = useMemo(() => {
+    const value = String(room?.video || "").trim();
+    if (/^\/media\/[a-zA-Z0-9/_.-]+\.mp4$/.test(value) && !value.includes("..")) return value;
+    try { const url = new URL(value); return url.protocol === "https:" && !url.username && !url.password ? url.href : ""; } catch { return ""; }
+  }, [room?.video]);
 
   const roomLabel = useMemo(() => {
     if (room?.number === "Salón") return "Salón";
@@ -351,7 +345,7 @@ const mapPayload = useMemo(
   const handleShareRoom = async () => {
     try {
       const title = `${name || "Skylines"} · ${roomLabel}`;
-      const text = `${roomLabel} en ${name || "Skylines"} · ${formatMoney(
+      const text = `${roomLabel} en ${name || "Skylines"} · ${formatRentalMoney(
         effectivePrice,
         effectiveCurrency
       )}`;
@@ -376,67 +370,125 @@ const mapPayload = useMemo(
     }
   };
 
-  const handleConfirmRent = () => {
+  const handleCreateContract = async () => {
+    if (!room?.available) {
+      setIdentityGate({ title: "Unidad no disponible", message: "Esta unidad ya no está disponible para un contrato nuevo.", action: null });
+      return;
+    }
+    try {
+      setFlowError("");
+      await ensureSkylinesRentalIdentityReady();
+      const allLive = mtLiveSnapshot();
+      const actorRole = await resolveRentalActorRole(allLive, String(owner || ""));
+      if (!["landlord", "authorized_admin"].includes(actorRole.role)) {
+        setIdentityGate({ title: "Acción administrativa", message: "Crear un contrato para otra persona requiere permiso del propietario o de un administrador autorizado. Para vos, usá “Reservar entrada”.", action: null });
+        return;
+      }
+      const unitId = String(room?.id || room?.roomId || room?.number || "");
+      let privateRegistry = {};
+      try { privateRegistry = JSON.parse(localStorage.getItem("skylines.owner.registry") || "{}"); } catch {}
+      const liveOwner = allLive.find((item) => item?.kind === "skylines.owner.profile" && String(item?.id) === String(owner));
+      const ownerData = pageState?.ownerRaw || liveOwner?.attrs || privateRegistry?.[owner] || {};
+      if (!ownerData?.nombreCompleto || !ownerData?.documento) throw new Error("No se pudo verificar la relación privada entre esta propiedad y su propietario.");
+      const draft = buildRentalContractDraft({
+        property: {
+          id: propertyId,
+          name,
+          address,
+          city,
+          description,
+          location: pageState?.location || propertyLocation || null,
+        },
+        room: { ...room, price: room?.contractPrice ?? room?.longTermPrice ?? effectivePrice, currency: effectiveCurrency },
+        owner: ownerData,
+      });
+      draft.rental = { contractId: `rental.contract:${crypto.randomUUID()}`, propertyId, unitId, ownerId: owner, landlordActorId: liveOwner?.attrs?.actorId || liveOwner?.attrs?.issuerActorId || owner, expectedRevision: Number(room?.revision || 1) };
+      localStorage.setItem("contratoDraft", JSON.stringify(draft));
+      navigate("/contrato");
+    } catch (error) {
+      console.error("No se pudo preparar el contrato de alquiler:", error);
+      setIdentityGate({ title: "No pudimos preparar el contrato", message: error?.message || "La identidad privada no está lista.", action: "retry-owner" });
+    }
+  };
+
+  const beginSelfReservation = async () => {
+    if (!room?.available) { setIdentityGate({ title: "Unidad no disponible", message: "Esta unidad ya está ocupada o reservada por otra operación.", action: null }); return; }
+    const allLive = mtLiveSnapshot();
+    const actorRole = await resolveRentalActorRole(allLive, String(owner || ""));
+    setReservationActor(actorRole.identity);
+    const adult = await verifyAdultForJurisdiction(allLive, actorRole.identity.actorId, { country: "PY", region: "Canindeyú", city: "Salto del Guairá" });
+    if (adult.verified) { await prefillPrivateIdentity(); setFlowError(""); setShowModal(true); return; }
+    const unitId = String(room?.id || room?.roomId || room?.number || "");
+    await createPendingIdentityReservation({ propertyId: String(propertyId), unitId, allLive });
+    sessionStorage.setItem("skylines.pendingReservation", JSON.stringify({ propertyId: String(propertyId), unitId, returnTo: location.pathname + location.search }));
+    setIdentityGate({ title: "Identidad necesaria", message: "Para reservar esta unidad necesitás una Identidad Viva con mayoría de edad verificada. No compartiremos tu fecha de nacimiento con la propiedad.", action: "verify" });
+  };
+
+  useEffect(() => {
+    if (!location.state?.reserveDirect || !room || directReservationStarted.current) return;
+    directReservationStarted.current = true;
+    void beginSelfReservation().catch((error) => setIdentityGate({ title: "No pudimos iniciar la reserva", message: error?.message || "Intentá de nuevo.", action: null }));
+  }, [location.state?.reserveDirect, room]);
+
+  const handleConfirmRent = async () => {
     if (!startDate || !endDate) {
-      alert("Selecciona fecha de inicio y fin.");
+      setFlowError("Seleccioná fecha de inicio y fin.");
       return;
     }
 
     if (!tenantName.trim()) {
-      alert("Ingresa el Nombre del inquilino.");
+      setFlowError("Ingresá el nombre del inquilino.");
       return;
     }
 
     if (!tenantCI.trim()) {
-      alert("Ingresa la Cédula de Identidad.");
+      setFlowError("Ingresá la Cédula de Identidad.");
       return;
     }
 
     if (!tenantAddress.trim()) {
-      alert("Ingresa el Domicilio.");
+      setFlowError("Ingresá el domicilio.");
       return;
     }
 
     if (room?.number == null || room?.number === "") {
-      alert("La pieza no está disponible.");
+      setFlowError("La unidad no está disponible.");
       return;
     }
 
     if (room?.available === false) {
-      alert("Esta pieza ya no está disponible.");
+      setFlowError("Esta unidad dejó de estar disponible.");
       return;
     }
 
     if (endDate < startDate) {
-      alert("La fecha de salida no puede ser anterior a la de inicio.");
+      setFlowError("La fecha final no puede ser anterior al inicio.");
       return;
     }
 
     const meses = diffMonths(startDate, endDate);
     if (meses < 6) {
-      alert("El contrato debe ser mínimo de 6 meses.");
+      setFlowError("El contrato debe ser de al menos 6 meses.");
       return;
     }
 
-    saveTenantLocal({
-      name: tenantName.trim(),
-      ci: tenantCI.trim(),
-      address: tenantAddress.trim(),
-      email: tenantEmail.trim(),
-    });
 
-    if (typeof effectivePrice !== "number" || !Number.isFinite(effectivePrice)) {
-      alert(
-        "El precio de la pieza debe ser numérico. Agrega room.price o price en el origen."
-      );
+    if (typeof reservationPrice !== "number" || !Number.isFinite(reservationPrice)) {
+      setFlowError("La unidad no publicó un precio válido.");
       return;
     }
 
-    navigate("/payment", {
+    try {
+      const allLive = mtLiveSnapshot();
+      await requireVerifiedAdult(allLive);
+      const unitId = String(room?.id || room?.roomId || room?.number || "");
+      const held = await createRentalHold({ propertyId: String(propertyId), unitId, expectedRevision: Number(room?.revision || 1), allLive });
+      const ownerIdentity = allLive.find((item) => item?.kind === "skylines.owner.profile" && String(item?.id) === String(owner));
+      navigate("/payment", {
       state: {
         propertyId,
         owner,
-        amount: effectivePrice,
+        amount: reservationPrice,
         currency: effectiveCurrency,
         roomId: room.number,
         roomLabel,
@@ -448,30 +500,34 @@ const mapPayload = useMemo(
         userAddress: tenantAddress.trim(),
         userEmail: (tenantEmail || "").trim() || undefined,
 
-        ownerRawUrl:
-          "https://raw.githubusercontent.com/CyberUtopyA/skylines/main/owners.json",
-
         meta: {
           ownerId: owner,
+          landlordActorId: ownerIdentity?.attrs?.actorId || ownerIdentity?.attrs?.issuerActorId || owner,
           roomNumber: room.number,
+          holdId: held.dv?.attrs?.holdId || held.dv?.id,
+          unitId,
+          expectedRevision: Number(held.dv?.attrs?.revision || 2),
         },
 
         ownerRaw: pageState?.ownerRaw || null,
+        contractDefaults: room?.contractDefaults || {},
 
         address: address || "",
-        city: city || "Salto del Guairá, Canindeyú, Paraguay",
+        city: city || "",
         description,
         image: roomMainImage,
         propertyName: name,
       },
     });
+    } catch (error) {
+      setFlowError(error?.message || "No se pudo reservar la unidad.");
+    }
   };
 
   if (!room) {
     return (
       <Contenido>
-        <SearchBar />
-        <Sidebar />
+        {!insideFalcon ? <Sidebar /> : null}
         <GlassContainer>
           <ContentCard>
             <LoadingOrb />
@@ -488,8 +544,7 @@ const mapPayload = useMemo(
 
   return (
     <Contenido>
-      <SearchBar />
-      <Sidebar />
+      {!insideFalcon ? <Sidebar /> : null}
 
       <GlassContainer>
         <ImageContainer>
@@ -560,6 +615,14 @@ const mapPayload = useMemo(
 
           {shareStatus && <ShareToast>{shareStatus}</ShareToast>}
         </ImageContainer>
+        {roomVideo ? <section className="my-5 overflow-hidden rounded-3xl border border-slate-200 bg-white p-4 sm:p-5" aria-label="Video de la habitación">
+          <h2 className="mb-3 text-lg font-bold">Recorré la habitación</h2>
+          <video key={roomVideo} controls playsInline preload="none" className="mx-auto max-h-[65dvh] w-full rounded-2xl bg-slate-950" aria-label="Recorrido de la habitación">
+            <source src={roomVideo} type="video/mp4"/>
+            Tu navegador no puede reproducir este video. <a href={roomVideo}>Abrir video</a>
+          </video>
+          <p className="mt-2 text-xs text-slate-500">El video se carga al reproducirlo.</p>
+        </section> : null}
 
         {showAR &&
           (room.model3D ? (
@@ -620,13 +683,26 @@ const mapPayload = useMemo(
             <MiniLocation>{city || "Salto del Guairá"}</MiniLocation>
           </TopLine>
 
-          <Price>{formatMoney(effectivePrice, effectiveCurrency)}</Price>
+          <Price>{formatRentalMoney(effectivePrice, effectiveCurrency)}</Price>
+
+          {asRentalMoneyNumber(room?.longTermPrice ?? room?.contractPrice) != null && Number(room?.minimumMonthsForLongTermPrice || 0) > 0 ? (
+            <Description>
+              <strong>{formatRentalMoney(room?.longTermPrice ?? room?.contractPrice, effectiveCurrency)} al mes</strong>{" "}
+              con contrato de {room.minimumMonthsForLongTermPrice} meses o más.
+            </Description>
+          ) : null}
 
           <Title>
             {name} · {roomLabel}
           </Title>
 
+          {room?.floor ? <MiniLocation>{room.floor}</MiniLocation> : null}
+
           <Description>{description}</Description>
+
+          {Array.isArray(room?.servicesIncluded) && room.servicesIncluded.length ? (
+            <Description><strong>Incluye:</strong> {room.servicesIncluded.join(" · ")}</Description>
+          ) : null}
 
           {roomPhotos.length > 1 && (
   <PhotoHint>
@@ -652,23 +728,22 @@ const mapPayload = useMemo(
         </GlassCard>
 
         <ButtonWrapper>
+          {canManageRental?<ContractButton type="button" onClick={handleCreateContract} disabled={!room?.available}>
+            Crear contrato
+          </ContractButton>:null}
+          {canManageRental?<ContractButton type="button" onClick={()=>void changeAvailability()} disabled={availabilityBusy||['HELD','OCCUPIED'].includes(room?.state)}>{availabilityBusy?'Guardando…':room?.available?'Pausar disponibilidad':'Marcar disponible'}</ContractButton>:null}
           <CircleButton
-            onClick={() => {
-              if (!room?.available) {
-                alert("Esta pieza no está disponible actualmente.");
-                return;
-              }
-              setShowModal(true);
-            }}
+            onClick={() => void beginSelfReservation()}
           >
             <Check size={19} color="white" />
             Reservar entrada
           </CircleButton>
         </ButtonWrapper>
+        {!showModal&&flowError?<p role="alert">{flowError}</p>:null}
 
         {showModal && (
           <ModalOverlay onClick={() => setShowModal(false)}>
-            <ModalContent onClick={(e) => e.stopPropagation()}>
+            <ModalContent role="dialog" aria-modal="true" aria-label="Reservar entrada" onClick={(e) => e.stopPropagation()}>
               <CloseModalButton type="button" onClick={() => setShowModal(false)}>
                 <X size={18} />
               </CloseModalButton>
@@ -685,7 +760,7 @@ const mapPayload = useMemo(
               <ResumeBox>
                 <ResumeItem>
                   <span>{roomLabel}</span>
-                  <strong>{formatMoney(effectivePrice, effectiveCurrency)}</strong>
+                  <strong>{formatRentalMoney(reservationPrice, effectiveCurrency)}</strong>
                 </ResumeItem>
                 <ResumeItem>
                   <span>Estado</span>
@@ -784,6 +859,7 @@ const mapPayload = useMemo(
               </DatePanel>
 
               <Actions>
+                {flowError ? <p style={{ gridColumn: "1 / -1", margin: 0, color: "#be123c", fontWeight: 800 }}>{flowError}</p> : null}
                 <button type="button" onClick={handleConfirmRent}>
                   Confirmar alquiler
                 </button>
@@ -791,6 +867,20 @@ const mapPayload = useMemo(
                   Cancelar
                 </button>
               </Actions>
+            </ModalContent>
+          </ModalOverlay>
+        )}
+        {identityGate && (
+          <ModalOverlay onClick={() => setIdentityGate(null)}>
+            <ModalContent onClick={(e) => e.stopPropagation()}>
+              <CloseModalButton type="button" onClick={() => setIdentityGate(null)}><X size={18}/></CloseModalButton>
+              <ModalHeader><ModalEyebrow>Identidad Viva · UTOPY</ModalEyebrow><ModalTitle>{identityGate.title}</ModalTitle><ModalSubtitle>{identityGate.message}</ModalSubtitle></ModalHeader>
+              <Actions>
+                {identityGate.action === "verify" && !inlineIdentity ? <button type="button" onClick={() => setInlineIdentity(true)}>Completar identidad privada y continuar</button> : null}
+                {identityGate.action === "retry-owner" ? <button type="button" onClick={() => { setIdentityGate(null); void handleCreateContract(); }}>Reintentar</button> : null}
+                <button type="button" onClick={() => setIdentityGate(null)}>Cancelar</button>
+              </Actions>
+              {identityGate.action === "verify" && inlineIdentity ? <Suspense fallback={<p>Abriendo tu identidad privada…</p>}><PrivateIdentityEditor allLive={mtLiveSnapshot()} activeActor={reservationActor} initialView="profile" initialProfileSection="private" identityJurisdiction={{ country: "PY", region: "Canindeyú", city: "Salto del Guairá" }} minimalEmbed onProfileDone={() => setInlineIdentity(false)} onPrivateIdentitySaved={async () => { const allLive = mtLiveSnapshot(); const role = await resolveRentalActorRole(allLive, String(owner || "")); const adult = await verifyAdultForJurisdiction(allLive, role.identity.actorId, { country: "PY", region: "Canindeyú" }); if (!adult.verified) throw Error("Todavía no pudimos verificar la identidad requerida."); await prefillPrivateIdentity(); sessionStorage.removeItem("skylines.pendingReservation"); setInlineIdentity(false); setIdentityGate(null); setShowModal(true); }}/></Suspense> : null}
             </ModalContent>
           </ModalOverlay>
         )}
@@ -970,6 +1060,23 @@ const ButtonWrapper = styled.div`
   z-index: 7;
   margin-top: 22px;
   margin-bottom: 40px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+`;
+const ContractButton = styled.button`
+  min-width: 190px;
+  height: 54px;
+  border-radius: 999px;
+  padding: 0 22px;
+  border: 1px solid rgba(15, 118, 110, 0.2);
+  color: #0f766e;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 16px 38px rgba(15, 23, 42, 0.1);
+  font-weight: 900;
+  cursor: pointer;
+  &:disabled { opacity: 0.45; cursor: not-allowed; }
 `;
 const GlassCard = styled.div`
   position: relative;
@@ -1292,15 +1399,19 @@ const ModalOverlay = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 80;
-  padding: 18px;
+  z-index: 15000;
+  padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
+  box-sizing:border-box;
   backdrop-filter: blur(16px);
 `;
 
 const ModalContent = styled.div`
   position: relative;
   width: min(94vw, 680px);
-  max-height: 92vh;
+  max-height: calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  box-sizing:border-box;
+  overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
   overflow-y: auto;
   background:
     linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.88));
@@ -1481,6 +1592,12 @@ const DatePanelTitle = styled.div`
 `;
 
 const Actions = styled.div`
+  position:sticky;
+  bottom:0;
+  z-index:2;
+  padding:12px 0 max(8px, env(safe-area-inset-bottom));
+  background:rgba(248,250,252,.94);
+  backdrop-filter:blur(12px);
   display: flex;
   gap: 0.75rem;
   flex-wrap: wrap;

@@ -1,0 +1,56 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { createServer, transformWithEsbuild } from 'vite';
+const vite=await createServer({server:{middlewareMode:true},appType:'custom',logLevel:'silent'});
+const navigatorDescriptor=Object.getOwnPropertyDescriptor(globalThis,'navigator');
+Object.defineProperty(globalThis,'navigator',{value:{onLine:false},configurable:true});
+try {
+ const adapter=await vite.ssrLoadModule('/src/utopy/adminInterfaceAdapter.ts');
+ const manifests=await vite.ssrLoadModule('/src/mt/utopy.nodeManifest.ts');
+ const publish=await vite.ssrLoadModule('/src/utopy/authorizedPublish.ts');
+ const workspace=await vite.ssrLoadModule('/src/utopy/businessWorkspace.ts');
+ const live=await vite.ssrLoadModule('/src/mt/mt.liveStore.ts');
+ const runtime=await import('utopy');
+ assert.equal(typeof runtime.projectLivingInterface,'function');
+ const nodeId='node:simulation:interface';
+ const manifest=(await publish.publishAuthorizedDV({dv:manifests.buildNodeManifestDV({nodeId,nodeName:'Demostración no comercial',endpoints:{},capabilities:[],ttlMs:3600000,extraAttrs:{simulation:true,nonTradable:true}}),allLive:[],actingAsNodeId:nodeId,allowNodeBootstrap:true,localOnly:true})).dv;
+ const [entry]=await workspace.businessRegistry([manifest]);
+ for (const [key,config] of Object.entries(workspace.BUSINESS_CONFIGURATIONS)) {
+   const tools=adapter.activeAdminTools({...entry,configuration:key},[]);
+   assert.equal(tools[0],config.adminTools[0]);
+   const host=adapter.adminReaderHost([],async()=>true,nodeId,tools);
+   assert.equal(host.surfaces[0].component,config.adminTools[0]);
+ }
+ assert.equal(adapter.activeAdminTools({...entry,configuration:'don-mencia'},[]).includes('diagnosis'),false);
+ assert.equal(adapter.activeAdminTools({...entry,configuration:'encicar'},[]).includes('agenda'),false);
+ const rows=[{id:'one',kind:'market.product',attrs:{title:'Tomate',nodeId,simulation:true,nonTradable:true}},{id:'foreign',kind:'market.product',attrs:{title:'Privado de otro negocio',nodeId:'other'}}];
+ const count=live.mtLiveSnapshot().length;
+ const projection=await adapter.projectAdminInterface(entry,rows,'ver catálogo',null,{},'intent:simulation');
+ assert.equal(projection.selected,'utopy.admin.catalog.read');assert.equal(projection.form.valid,true);assert.equal(projection.executesAutomatically,false);
+ assert.deepEqual(adapter.queryAdminRecords(rows,projection.selected,{},nodeId).map(item=>item.id),['one']);
+ assert.deepEqual(adapter.queryAdminRecords(rows,projection.selected,{}),[],'missing node context fails closed');
+ const corrected=await adapter.projectAdminInterface(entry,rows,'ver catálogo',projection.selected,{query:'inexistente'},'intent:corrected');
+ assert.deepEqual(adapter.queryAdminRecords(rows,corrected.selected,{query:'inexistente'},nodeId),[]);
+ const unknown=await adapter.projectAdminInterface(entry,rows,'cobrar diez mil y reservar un turno',null,{},'intent:unknown');assert.equal(unknown.selected,null);
+ const simulation=await adapter.simulateAdminInterface(entry,rows,projection);
+ assert.equal(simulation.viable,true,JSON.stringify(simulation.blockers));
+ assert.equal(live.mtLiveSnapshot().length,count,'interpretation and simulation do not publish or execute');
+ await assert.rejects(()=>adapter.saveAdminProcedure(entry,projection),/persistente/,'ephemeral test wallet must not save production procedures');
+ let authorized=true;
+ const host=adapter.adminReaderHost(rows,async()=>authorized,nodeId);
+ const installed=host.sandbox.get('utopy.admin.catalog.read');
+ assert.deepEqual((await installed.handler.execute({},{})).output.recordRefs,['one']);
+ authorized=false;await assert.rejects(()=>installed.handler.execute({},{}),/revocado/);
+ const input=runtime.interfaceCompositionInput(projection);
+ const identity=await runtime.createIdentity({actorId:projection.actorId,nodeId});
+ const sdk=new runtime.LivingCompositionSDK({identity,authorities:{accepts:()=>false},capabilities:{list:()=>[]},publish:async envelope=>envelope});
+ const first=await sdk.sign(input,{mode:'explicit-consent',ref:'simulation:review'});
+ const next=await sdk.revise(first,{inputs:{query:'Tomate'}},{mode:'explicit-consent',ref:'simulation:correction'});
+ assert.equal(next.payload.revision,2);assert.equal(next.payload.parentRevision.contentHash,first.contentHash);assert.equal(next.payload.proposalOnly,true);
+ const page=readFileSync('src/pages/BusinessWorkspace.tsx','utf8');
+ assert.match(page,/manage && identity/);assert.match(page,/section==='Hoy'.*<NodeLivingInterface/);
+ const ui=readFileSync('src/components/NodeLivingInterface.tsx','utf8');
+ assert.match(ui,/speech.current\?\.abort/);assert.match(ui,/canConfigure && review/);assert.match(ui,/No está activa/);
+ for (const file of ['src/pages/BusinessWorkspace.tsx','src/components/NodeLivingInterface.tsx','src/utopy/adminInterfaceAdapter.ts']) await transformWithEsbuild(readFileSync(file,'utf8'),file,{loader:'tsx'});
+ console.log('OK: installed UTOPY projection, real local read handlers, actor/node isolation, offline interpretation, unknown tasks, correction, canonical simulation/revision, revocation and no publication. Persistent browser saving/voice and remote conflict resolution not exercised.');
+}finally{if(navigatorDescriptor)Object.defineProperty(globalThis,'navigator',navigatorDescriptor);else delete globalThis.navigator;await vite.close();}

@@ -1,8 +1,8 @@
 // src/mt/payments/SubscriptionPanel.tsx
-// UI mínima para activar débito automático (crear payment.mandate)
+// UI mínima para solicitar débito automático sobre una recurrencia real.
 // - Lee payment.offer (métodos aceptados)
 // - Lee payment.plan.offer (planes del seller)
-// - Crea payment.mandate
+// - Publica una solicitud; el nodo de pago publica la autorización real.
 
 import React, { useEffect, useMemo, useState } from "react";
 import styled from "styled-components";
@@ -10,8 +10,12 @@ import styled from "styled-components";
 import { mtLiveSubscribe } from "./mt.liveStore";
 import { usePaymentOffer } from "./resolveOffer";
 import type { PaymentMethod } from "./mt.intentpayment";
-import { emitPaymentMandate } from "./mt.subscriptionIntent";
+import {
+  buildAutopayAuthorizationRequestDV,
+  publishSubscriptionDV,
+} from "./mt.subscriptionIntent";
 import type { PaymentPlanOfferDV } from "./mt.subscriptionIntent";
+import { deriveSubscriptionState, resolveDvThreadId } from "./mt.threadProtocol";
 
 // 👇 usa tu identidad local existente
 import { useLocalBuyerIdentity } from "./uselocalbuyerindentity"; // AJUSTA PATH si tu hook está en otro lado
@@ -129,6 +133,11 @@ export type SubscriptionPanelProps = {
 
   sellerId: string;
   sellerName?: string | null;
+  threadId?: string | null;
+  chainId?: string | null;
+  rootDvId?: string | null;
+  subscriptionId?: string | null;
+  allLive?: any[];
 
   // opcional: si querés sugerir un monto
   suggestAmount?: number;
@@ -136,7 +145,19 @@ export type SubscriptionPanelProps = {
 };
 
 export default function SubscriptionPanel(props: SubscriptionPanelProps) {
-  const { open, onClose, sellerId, sellerName, suggestAmount, currency = "PYG" } = props;
+  const {
+    open,
+    onClose,
+    sellerId,
+    sellerName,
+    threadId = null,
+    chainId = null,
+    rootDvId = null,
+    subscriptionId = null,
+    allLive: externalAll = null,
+    suggestAmount,
+    currency = "PYG",
+  } = props;
 
   const { buyerId, name: buyerName } = useLocalBuyerIdentity();
 
@@ -144,13 +165,17 @@ export default function SubscriptionPanel(props: SubscriptionPanelProps) {
   const { offer } = usePaymentOffer({ sellerId });
 
   // 2) planes del seller (payment.plan.offer)
-  const [all, setAll] = useState<any[]>([]);
+  const [localAll, setLocalAll] = useState<any[]>([]);
   useEffect(() => {
-    const unsub = mtLiveSubscribe((xs: any[]) => setAll(Array.isArray(xs) ? xs : []));
+    if (externalAll) return;
+    const unsub = mtLiveSubscribe((xs: any[]) =>
+      setLocalAll(Array.isArray(xs) ? xs : []),
+    );
     return () => {
       try { unsub?.(); } catch {}
     };
-  }, []);
+  }, [externalAll]);
+  const all = externalAll || localAll;
 
   const plans = useMemo(() => {
     const arr = all
@@ -160,9 +185,17 @@ export default function SubscriptionPanel(props: SubscriptionPanelProps) {
     return arr;
   }, [all, sellerId]);
 
+  const recurrence = useMemo(() => {
+    if (!threadId) return deriveSubscriptionState([], buyerId);
+    return deriveSubscriptionState(
+      all.filter((dv) => resolveDvThreadId(dv, all) === threadId),
+      buyerId,
+    );
+  }, [all, buyerId, threadId]);
+
   // estado UI
   const [chosenMethod, setChosenMethod] = useState<PaymentMethod | null>(null);
-  const [interval, setInterval] = useState<"monthly" | "weekly" | "daily">("monthly");
+  const [interval, setPlanInterval] = useState<"monthly" | "weekly" | "daily">("monthly");
   const [every, setEvery] = useState<number>(1);
   const [amountMax, setAmountMax] = useState<number>(Math.max(0, Number(suggestAmount || 0)));
 
@@ -179,14 +212,20 @@ export default function SubscriptionPanel(props: SubscriptionPanelProps) {
       const e = Number(p?.attrs?.every ?? 1);
 
       if (a > 0) setAmountMax(a);
-      if (i === "weekly" || i === "daily" || i === "monthly") setInterval(i);
+      if (i === "weekly" || i === "daily" || i === "monthly") setPlanInterval(i);
       if (Number.isFinite(e) && e > 0) setEvery(e);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, plans.length]);
 
   const accepted = offer?.accepted || [];
-  const canCreate = !!buyerId && !!sellerId && amountMax > 0;
+  const canCreate =
+    !!buyerId &&
+    !!sellerId &&
+    !!threadId &&
+    recurrence.status === "active" &&
+    recurrence.autopay.status !== "active" &&
+    amountMax > 0;
 
   const createMandate = async () => {
     try {
@@ -197,30 +236,33 @@ export default function SubscriptionPanel(props: SubscriptionPanelProps) {
       if (!sellerId) throw new Error("No hay sellerId.");
       if (!amountMax || amountMax <= 0) throw new Error("Monto máximo inválido.");
 
-      await emitPaymentMandate({
-        sellerId,
-        sellerName: sellerName ?? offer?.sellerName ?? null,
+      if (!threadId || recurrence.status !== "active") {
+        throw new Error("Primero debe existir un acuerdo recurrente activo.");
+      }
 
-        buyerId,
-        buyerName: buyerName ?? null,
+      await publishSubscriptionDV(
+        buildAutopayAuthorizationRequestDV({
+          threadId,
+          chainId,
+          rootDvId,
+          parentDvId: recurrence.evidence.subscription?.id || null,
+          subscriptionId:
+            subscriptionId || recurrence.subscriptionId || null,
+          actorId: buyerId,
+          actorName: buyerName ?? null,
+          participants: [buyerId, sellerId],
+          sellerId,
+          buyerId,
+          interval,
+          every,
+          amountMax,
+          currency,
+          chosen: chosenMethod ?? null,
+          reason: `Solicitado para el plan ${plans?.[0]?.attrs?.planId || "acordado"}`,
+        }),
+      );
 
-        planId: plans?.[0]?.attrs?.planId ?? null,
-        label: `Débito ${interval} (cada ${every})`,
-
-        interval,
-        every,
-
-        amountMax,
-        currency,
-
-        chosen: chosenMethod ?? null,
-        active: true,
-        note: "Mandate creado desde checkout",
-        ns: "mt:market",
-        source: "ms.web.subscription.panel",
-      });
-
-      setMsg("✅ Débito automático activado");
+      setMsg("Solicitud enviada. Se activará cuando el nodo de pago confirme.");
     } catch (e: any) {
       setMsg(e?.message || "No se pudo crear el débito automático.");
     } finally {
@@ -244,6 +286,20 @@ export default function SubscriptionPanel(props: SubscriptionPanelProps) {
             {offer?.text ? <Sub>{offer.text}</Sub> : null}
           </Row>
 
+          {recurrence.status !== "active" ? (
+            <Row>
+              <Sub>
+                El pago automático solo puede solicitarse después de aceptar un
+                abastecimiento recurrente. Una necesidad semanal todavía no es
+                una suscripción.
+              </Sub>
+            </Row>
+          ) : recurrence.autopay.status === "active" ? (
+            <Row>
+              <Sub><b>Pago automático activo.</b> Existe una autorización confirmada.</Sub>
+            </Row>
+          ) : null}
+
           {/* Planes del vendedor (si existen) */}
           {plans.length > 0 && (
             <Row>
@@ -259,7 +315,7 @@ export default function SubscriptionPanel(props: SubscriptionPanelProps) {
                       onClick={() => {
                         const i = safeStr(p?.attrs?.interval) as any;
                         const e = Number(p?.attrs?.every ?? 1);
-                        if (i === "weekly" || i === "daily" || i === "monthly") setInterval(i);
+                        if (i === "weekly" || i === "daily" || i === "monthly") setPlanInterval(i);
                         if (Number.isFinite(e) && e > 0) setEvery(e);
                         if (amt > 0) setAmountMax(amt);
                       }}
@@ -276,9 +332,9 @@ export default function SubscriptionPanel(props: SubscriptionPanelProps) {
           <Row>
             <div style={{ fontWeight: 950 }}>Frecuencia</div>
             <PillRow>
-              <Pill active={interval === "monthly"} onClick={() => setInterval("monthly")}>Mensual</Pill>
-              <Pill active={interval === "weekly"} onClick={() => setInterval("weekly")}>Semanal</Pill>
-              <Pill active={interval === "daily"} onClick={() => setInterval("daily")}>Diario</Pill>
+              <Pill active={interval === "monthly"} onClick={() => setPlanInterval("monthly")}>Mensual</Pill>
+              <Pill active={interval === "weekly"} onClick={() => setPlanInterval("weekly")}>Semanal</Pill>
+              <Pill active={interval === "daily"} onClick={() => setPlanInterval("daily")}>Diario</Pill>
             </PillRow>
 
             <Sub>Cada</Sub>
@@ -337,7 +393,7 @@ export default function SubscriptionPanel(props: SubscriptionPanelProps) {
           <BtnRow>
             <Btn tone="ghost" onClick={onClose} disabled={busy}>Cancelar</Btn>
             <Btn tone="dark" onClick={() => void createMandate()} disabled={busy || !canCreate}>
-              {busy ? "Creando..." : "Activar débito automático"}
+              {busy ? "Enviando..." : "Solicitar pago automático"}
             </Btn>
           </BtnRow>
         </Body>

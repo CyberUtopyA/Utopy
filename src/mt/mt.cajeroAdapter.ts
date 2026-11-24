@@ -7,6 +7,11 @@ export type MtCajeroNivel = "cajero" | "admin" | "supervisor";
 
 export type MtCajero = {
   id: string;
+  cajeroId?: string;
+  deviceId?: string;
+  actorId?: string;
+  nodeId?: string;
+  authority?: string;
   nombre: string;
 
   doc?: string;
@@ -327,6 +332,15 @@ export function adaptDatosToMtCajeros(datos: DatoVivo[]): MtCajero[] {
 
       return {
         id: String(d.id),
+        cajeroId: String(a?.cajeroId || d.id),
+        deviceId: deviceId ? String(deviceId) : undefined,
+        actorId: a?.actorId ? String(a.actorId) : undefined,
+        nodeId: a?.nodeId || a?.node?.id || meta?.nodeId || meta?.originNode
+          ? String(a?.nodeId || a?.node?.id || meta?.nodeId || meta?.originNode)
+          : undefined,
+        authority: a?.authority || meta?.authority
+          ? String(a?.authority || meta?.authority)
+          : undefined,
         nombre,
         doc: doc ? String(doc) : undefined,
         telefono: telefono ? String(telefono) : undefined,

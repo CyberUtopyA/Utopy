@@ -1,0 +1,10 @@
+node_modules/
+data/
+secrets/
+.env
+*.pem
+*.key
+*.p12
+*.pfx
+*.sqlite*
+config.private.json

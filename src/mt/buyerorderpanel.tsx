@@ -4,8 +4,14 @@ import type { DatoVivo } from "./mt.traitAdapter";
 import { mtLiveSubscribe, mtLiveUpsert } from "./mt.liveStore";
 import { emitDeliveryConfirm } from "./deliveryconfirm";
 import { useLocalBuyerIdentity } from "./uselocalbuyerindentity";
+import { resolveLivingIdentity } from "../social/liveProfile";
+import { useNavigate } from "react-router-dom";
 import { spore } from "../utopy/spore.singleton";
 import InvoiceCenter from "./invoicecenter";
+import {
+  buildAutopayRevokeRequestDV,
+  publishSubscriptionDV,
+} from "./mt.subscriptionIntent";
 
 /* ───────────────────────────── UI UTOPY ───────────────────────────── */
 
@@ -32,8 +38,8 @@ const Header = styled.div`
   background:
     radial-gradient(circle at 0% 0%, rgba(34, 211, 238, 0.24), transparent 38%),
     radial-gradient(circle at 100% 20%, rgba(217, 70, 239, 0.18), transparent 36%),
-    linear-gradient(135deg, #07111f, #12253a 55%, #172554);
-  color: white;
+    linear-gradient(135deg, #f8fafc, #ffffff 55%, #faf7f0);
+  color: #0f172a;
   border: 1px solid rgba(255, 255, 255, 0.12);
 `;
 
@@ -59,9 +65,9 @@ const Eyebrow = styled.div`
   border-radius: 999px;
   padding: 6px 10px;
   margin-bottom: 12px;
-  background: rgba(34, 211, 238, 0.12);
-  border: 1px solid rgba(34, 211, 238, 0.25);
-  color: #cffafe;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  color: #475569;
   font-size: 11px;
   font-weight: 950;
   text-transform: uppercase;
@@ -87,7 +93,7 @@ const Title = styled.h2`
 const HeaderText = styled.p`
   margin: 10px 0 0;
   max-width: 760px;
-  color: rgba(226, 232, 240, 0.82);
+  color: #64748b;
   font-size: 14px;
   line-height: 1.7;
 `;
@@ -368,17 +374,25 @@ const TinyCode = styled.code`
   font-size: 12px;
 `;
 
-const Message = styled.div<{ tone?: "ok" | "warn" }>`
+const Message = styled.div<{ tone?: "ok" | "warn" | "info" }>`
   margin-top: 12px;
   border-radius: 18px;
   padding: 11px 12px;
   font-weight: 850;
   font-size: 13px;
   background: ${({ tone }) =>
-    tone === "warn" ? "rgba(245,158,11,0.12)" : "rgba(34,197,94,0.10)"};
+    tone === "warn"
+      ? "rgba(245,158,11,0.12)"
+      : tone === "info"
+        ? "rgba(59,130,246,0.10)"
+        : "rgba(34,197,94,0.10)"};
   border: 1px solid
     ${({ tone }) =>
-      tone === "warn" ? "rgba(245,158,11,0.22)" : "rgba(34,197,94,0.18)"};
+      tone === "warn"
+        ? "rgba(245,158,11,0.22)"
+        : tone === "info"
+          ? "rgba(59,130,246,0.20)"
+          : "rgba(34,197,94,0.18)"};
 `;
 
 const CreditMini = styled.div`
@@ -449,11 +463,17 @@ function isOrderEvent(d: any) {
 }
 
 function isMandateCreate(d: any) {
-  return safeStr(d?.kind) === "payment.mandate.create";
+  return [
+    "payment.mandate.create",
+    "payment.mandate",
+    "payment.autopay.authorization",
+  ].includes(safeStr(d?.kind));
 }
 
 function isMandateCancel(d: any) {
-  return safeStr(d?.kind) === "payment.mandate.cancel";
+  return ["payment.mandate.cancel", "payment.autopay.revoked"].includes(
+    safeStr(d?.kind),
+  );
 }
 
 function isCreditAccount(d: any) {
@@ -485,7 +505,14 @@ function lastMandateStateFor(key: string, all: any[]) {
   const creates = all.filter(isMandateCreate).filter((d) => mandateKey(d) === key);
   const cancels = all
     .filter(isMandateCancel)
-    .filter((d) => safeStr(d?.attrs?.mandateKey) === key);
+    .filter((d) => {
+      const ref = safeStr(
+        d?.attrs?.mandateKey ||
+          d?.attrs?.authorizationKey ||
+          d?.attrs?.authorizationId,
+      );
+      return ref === key || creates.some((create) => safeStr(create?.id) === ref);
+    });
 
   const lastCreate = creates.sort((a, b) => parseTs(b) - parseTs(a))[0] || null;
   const lastCancel = cancels.sort((a, b) => parseTs(b) - parseTs(a))[0] || null;
@@ -604,51 +631,37 @@ function computeCreditAccountView(account: any, all: any[]) {
   };
 }
 
-async function emitMandateCancel(params: {
+async function emitAutopayRevokeRequest(params: {
+  authorization: any;
   mandateKey: string;
   buyerId: string;
   buyerName?: string;
-  ns?: string;
-  note?: string;
 }) {
-  const ns = params.ns ?? "mt:market";
-  const dv = {
-    id: `payment.mandate.cancel:${params.mandateKey}:${Date.now()}`,
-    kind: "payment.mandate.cancel",
-    traits: ["mt:payment.mandate", "mt:cancel", "mt:market"],
-    attrs: {
-      mandateKey: params.mandateKey,
+  const attrs = params.authorization?.attrs || {};
+  const threadId = safeStr(
+    attrs.threadId || params.authorization?.meta?.threadId,
+  );
+  if (!threadId) {
+    throw new Error(
+      "Esta autorización antigua no está vinculada a un pedido o hilo. Abrí la operación relacionada para administrarla.",
+    );
+  }
+  return publishSubscriptionDV(
+    buildAutopayRevokeRequestDV({
+      threadId,
+      chainId: attrs.chainId || params.authorization?.meta?.chainId || threadId,
+      rootDvId: attrs.rootDvId || params.authorization?.meta?.rootDvId || null,
+      parentDvId: params.authorization?.id || null,
+      subscriptionId: attrs.subscriptionId || null,
+      authorizationId: params.authorization?.id || params.mandateKey,
+      actorId: params.buyerId,
+      actorName: params.buyerName || null,
       buyerId: params.buyerId,
-      buyerName: params.buyerName ?? null,
-      note: params.note ?? "Cancelado por el comprador",
-    },
-    meta: {
-      ns,
-      ts: new Date().toISOString(),
-      actor: params.buyerId,
-      source: "ms.web.buyer.cancel",
-    },
-  };
-
-  mtLiveUpsert(dv as any);
-
-  try {
-    await spore?.sayIntent({
-      sym: "🧬",
-      say: "dato.upsert",
-      with: { dv },
-    });
-  } catch {}
-
-  try {
-    await spore?.sayIntent({
-      sym: "⛔",
-      say: "payment.mandate.cancel",
-      with: dv,
-    });
-  } catch {}
-
-  return dv;
+      sellerId: attrs.sellerId || null,
+      participants: [params.buyerId, attrs.sellerId],
+      reason: "Solicitado desde Mis pedidos",
+    }),
+  );
 }
 
 type Props = {
@@ -658,9 +671,12 @@ type Props = {
 /* ───────────────────────────── Component ───────────────────────────── */
 
 export default function BuyerOrdersPanel({ onOpenThread }: Props) {
-  const { name, setName, buyerId } = useLocalBuyerIdentity();
+  const { name, buyerId } = useLocalBuyerIdentity();
+  const navigate = useNavigate();
+  const [view, setView] = useState<"orders" | "finance">("orders");
 
   const [allDvs, setAllDvs] = useState<DatoVivo[]>([]);
+  const identity = useMemo(() => resolveLivingIdentity({ actorId: buyerId }, allDvs), [buyerId, allDvs]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [tokenByOrder, setTokenByOrder] = useState<Record<string, string>>({});
@@ -790,20 +806,21 @@ export default function BuyerOrdersPanel({ onOpenThread }: Props) {
     } as any);
   };
 
-  const cancelMandate = async (key: string) => {
+  const cancelMandate = async (key: string, authorization: any) => {
     try {
       setCancelBusyKey(key);
       setMsg(null);
 
-      await emitMandateCancel({
+      await emitAutopayRevokeRequest({
+        authorization,
         mandateKey: key,
         buyerId,
         buyerName: name || "Anon",
-        ns: "mt:market",
-        note: "Cancelado desde Mis pedidos",
       });
 
-      setMsg("✅ Débito automático cancelado");
+      setMsg(
+        "Solicitud enviada. El pago automático seguirá activo hasta que el nodo de pago confirme la desactivación.",
+      );
     } catch (e: any) {
       setMsg(e?.message || "No se pudo cancelar el débito automático");
     } finally {
@@ -921,35 +938,28 @@ export default function BuyerOrdersPanel({ onOpenThread }: Props) {
           <HeaderInner>
             <Eyebrow>
               <Dot />
-              Centro comprador
+              Tu espacio de compras
             </Eyebrow>
 
             <Title>Mis pedidos</Title>
 
             <HeaderText>
-              Seguimiento simple de compras, créditos, débitos automáticos,
-              documentos y confirmación de entrega dentro del ecosistema MT.
+              Seguí tus compras, hablá con quien te vende y confirmá la entrega desde acá.
             </HeaderText>
 
-            <IdentityBox>
-              <div>
-                <Subtle>Tu nombre local</Subtle>
-                <Input
-                  value={name}
-                  placeholder="Ej: MATEO"
-                  onChange={(e) => setName(e.target.value)}
-                />
-                <Subtle style={{ marginTop: 7, color: "rgba(255,255,255,.78)" }}>
-                  ID comprador: <TinyCode>{buyerId}</TinyCode>
-                </Subtle>
-              </div>
-
-              <Pill tone="info">🧬 identidad local</Pill>
-            </IdentityBox>
+            <div className="mt-4 flex flex-wrap items-center gap-3 text-slate-700">
+              {identity.avatar ? <img src={identity.avatar} alt="" className="h-10 w-10 rounded-full object-cover"/> : <span className="grid h-10 w-10 place-items-center rounded-full bg-slate-100" aria-hidden="true">◈</span>}
+              <span className="min-w-0 flex-1 text-sm font-bold">{identity.name || "Mi Perfil Vivo"}</span>
+              <button type="button" className="min-h-11 rounded-full border border-slate-200 bg-white px-4 text-sm font-bold" onClick={() => navigate("/market?tab=circular&view=red")}>Mi perfil</button>
+            </div>
           </HeaderInner>
         </Header>
 
-        <SectionBlock>
+        <nav aria-label="Mis pedidos" className="mb-4 flex flex-wrap gap-2">
+          <button type="button" aria-pressed={view === "orders"} onClick={() => setView("orders")} className={`min-h-11 rounded-full border px-5 font-bold ${view === "orders" ? "bg-slate-950 text-white" : "bg-white text-slate-700"}`}>Pedidos · {myOrders.length}</button>
+          <button type="button" aria-pressed={view === "finance"} onClick={() => setView("finance")} className={`min-h-11 rounded-full border px-5 font-bold ${view === "finance" ? "bg-slate-950 text-white" : "bg-white text-slate-700"}`}>Pagos y autorizaciones</button>
+        </nav>
+        {view === "finance" && <><SectionBlock>
           <SectionHead>
             <SectionTitle>
               <IconBubble>💳</IconBubble>
@@ -1103,6 +1113,9 @@ export default function BuyerOrdersPanel({ onOpenThread }: Props) {
             <MiniGrid>
               {myMandates.map(({ key, dv }) => {
                 const busy = cancelBusyKey === key;
+                const linkedThreadId = safeStr(
+                  dv?.attrs?.threadId || dv?.meta?.threadId,
+                );
                 const sellerName =
                   safeStr(dv?.attrs?.sellerName) || safeStr(dv?.attrs?.sellerId);
                 const productId = safeStr(dv?.attrs?.productId);
@@ -1115,7 +1128,7 @@ export default function BuyerOrdersPanel({ onOpenThread }: Props) {
                   <MandateCard key={key}>
                     <Row>
                       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                        <Pill tone="ok">🔁 Activo</Pill>
+                         <Pill tone="ok">💳 Pago automático activo</Pill>
                         <b>{sellerName}</b>
                         {productId && (
                           <Subtle>
@@ -1138,12 +1151,18 @@ export default function BuyerOrdersPanel({ onOpenThread }: Props) {
                       <Btn
                         type="button"
                         tone="warn"
-                        disabled={busy}
-                        onClick={() => void cancelMandate(key)}
+                        disabled={busy || !linkedThreadId}
+                        onClick={() => void cancelMandate(key, dv)}
                       >
-                        {busy ? "Cancelando..." : "Cancelar débito ⛔"}
+                        {busy ? "Enviando..." : "Desactivar débito automático"}
                       </Btn>
                     </div>
+                    {!linkedThreadId ? (
+                      <Subtle>
+                        Esta autorización antigua no está vinculada a una operación;
+                        no se modificará desde esta tarjeta.
+                      </Subtle>
+                    ) : null}
                   </MandateCard>
                 );
               })}
@@ -1151,13 +1170,22 @@ export default function BuyerOrdersPanel({ onOpenThread }: Props) {
           )}
         </SectionBlock>
 
+        </>}
         {msg && (
-          <Message tone={msg.includes("⚠️") ? "warn" : "ok"}>
+          <Message
+            tone={
+              msg.includes("⚠️")
+                ? "warn"
+                : msg.startsWith("Solicitud enviada")
+                  ? "info"
+                  : "ok"
+            }
+          >
             {msg}
           </Message>
         )}
 
-        <SectionBlock>
+        {view === "orders" && <SectionBlock>
           <SectionHead>
             <SectionTitle>
               <IconBubble>📦</IconBubble>
@@ -1231,7 +1259,7 @@ export default function BuyerOrdersPanel({ onOpenThread }: Props) {
                         </Pill>
 
                         {isCreditOrder && <Pill tone="info">💳 Crédito</Pill>}
-                        {mandateActive && <Pill tone="info">🔁 Suscripción</Pill>}
+                        {mandateActive && <Pill tone="info">💳 Pago automático</Pill>}
                         {hasReceipt && <Pill tone="ok">🧾 Comprobante</Pill>}
                         {hasInvoice && <Pill tone="info">📄 Factura</Pill>}
                       </div>
@@ -1305,7 +1333,7 @@ export default function BuyerOrdersPanel({ onOpenThread }: Props) {
 
                     {!mandateActive && (st1.cancel || st2.cancel) && (
                       <Subtle style={{ marginTop: 8 }}>
-                        Débito automático: <b>cancelado</b>
+                        Pago automático: <b>desactivado</b>
                       </Subtle>
                     )}
 
@@ -1388,7 +1416,7 @@ export default function BuyerOrdersPanel({ onOpenThread }: Props) {
               })}
             </OrderGrid>
           )}
-        </SectionBlock>
+        </SectionBlock>}
       </Box>
 
       <InvoiceCenter

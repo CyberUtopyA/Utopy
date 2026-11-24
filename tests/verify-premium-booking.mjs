@@ -1,0 +1,32 @@
+import assert from 'node:assert/strict';
+import {mkdtempSync,rmSync,readFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {transformWithEsbuild} from 'vite';
+import {replaceScheduleBlock,groupSchedule,removeScheduleBlock} from '../src/booking/scheduleBlocks.mjs';
+import {validateBookingConfig,localInstant,candidateSlots,publicBookingConfig} from '../src/booking/contracts.mjs';
+import {LivingBookingStore} from '../server/booking/store.mjs';
+const block={start:'08:00',end:'10:00',days:[3,4],breaks:[{start:'08:30',end:'08:45'},{start:'09:00',end:'09:30'}]};
+const windows=replaceScheduleBlock([],block);assert.equal(windows.length,2);const [group]=groupSchedule(windows);assert.deepEqual(group.days,[3,4]);assert.equal(group.breaks.length,2);
+const cloned=replaceScheduleBlock(windows,{...block,days:[5]});assert.equal(cloned.length,3);assert.equal(windows.length,2,'copy must not mutate original');
+assert.throws(()=>replaceScheduleBlock(cloned,{...block,days:[3]}),/OVERLAPPING_WINDOW/);
+assert.throws(()=>replaceScheduleBlock([],{...block,breaks:[{start:'07:00',end:'07:30'}]}),/INVALID_BREAK/);
+assert.throws(()=>replaceScheduleBlock([],{...block,breaks:[{start:'08:00',end:'09:00'},{start:'08:30',end:'09:30'}]}),/OVERLAPPING_BREAK/);
+const edited=replaceScheduleBlock(windows,{...block,end:'11:00',days:[3]},group.id);assert.equal(edited.length,1);assert.equal(edited[0].end,'11:00');assert.equal(removeScheduleBlock(windows,group.id).length,0);
+const nodeId='node:simulation:premium',now=Date.parse('2026-11-01T00:00:00Z'),date='2026-11-18';
+const config={schema:'utopy.living-booking/1',simulation:true,nonTradable:true,nodeId,name:'Isolated premium test',timeZone:'America/Asuncion',confirmation:'approval',slotMinutes:15,resources:[{id:'pro:test',kind:'professional',name:'Fixture',windows,blocks:[]}],services:[{id:'service:test',name:'Fixture service',description:'',category:'test',image:'',price:null,currency:'PYG',durationMinutes:30,professionalIds:['pro:test'],resourceIds:[],active:true}],presentation:{preset:'standard'},gallery:[]};
+const validated=validateBookingConfig(config);assert.deepEqual(candidateSlots(validated,date,'service:test','pro:test',now).map(s=>s.label),['08:00','09:30']);assert.deepEqual(publicBookingConfig(validated).resources[0].windows,[]);
+const folder=mkdtempSync(join(tmpdir(),'utopy-premium-')),path=join(folder,'booking.sqlite');
+const authorize=async({nodeId,action,proof})=>({verified:true,actorId:proof.actorId,nodeId,allowedActions:[action]});let store=new LivingBookingStore(path,{authorize,now:()=>now});
+try{
+ await store.configure({actorId:'actor:simulation:owner'},nodeId,config,0);
+ const cmd={op:'create',date,start:localInstant(date,'08:00'),serviceId:'service:test',professionalId:'pro:test',notes:'Fixture preference',contact:{name:'Fixture client',phone:'+595 981 123456',consent:true}};
+ const concurrent=await Promise.allSettled([store.command({actorId:'actor:simulation:a'},nodeId,'test:a',cmd),store.command({actorId:'actor:simulation:b'},nodeId,'test:b',cmd)]);assert.equal(concurrent.filter(r=>r.status==='fulfilled').length,1);
+ const winner=concurrent.find(r=>r.status==='fulfilled').value.booking;assert.equal(winner.notes,'Fixture preference');assert.equal(winner.contact.consent,true);
+ const conflict=structuredClone(config);conflict.resources[0].windows[0].breaks.push({start:'08:00',end:'08:15'});await assert.rejects(()=>store.configure({actorId:'actor:simulation:owner'},nodeId,conflict,1),/ACTIVE_BOOKING_CONFIG_CONFLICT/);assert.equal(store.config(nodeId).version,1);
+ store.close();store=new LivingBookingStore(path,{authorize,now:()=>now});assert.equal((await store.list({actorId:winner.actorId},nodeId))[0].contact.name,'Fixture client');assert.deepEqual(store.slots(nodeId,date,'service:test','pro:test').map(s=>s.label),['09:30']);
+ await assert.rejects(()=>store.command({actorId:'actor:simulation:c'},nodeId,'test:break',{...cmd,start:localInstant(date,'08:30')}),/SLOT_UNAVAILABLE/);
+ for(const file of ['src/components/InteractiveField.tsx','src/components/SimpleIdentitySignup.tsx','src/booking/WeeklyScheduleEditor.tsx','src/booking/BookingCalendar.tsx','src/booking/BookingExperience.tsx','src/booking/BookingManager.tsx'])await transformWithEsbuild(readFileSync(file,'utf8'),file,{loader:'tsx'});
+ const css=readFileSync('src/booking/bookingPremium.css','utf8');assert.match(css,/max-width:480px/);assert.match(css,/prefers-reduced-motion/);assert.match(readFileSync('src/components/interactiveFields.css','utf8'),/overflow:auto/);
+ console.log('OK: create/edit/copy/remove multi-day blocks, multiple breaks, overlap rejection, slot exclusion, competing reservations, protection of existing bookings, private contacts/preferences, persistence after reopen and TSX/responsive CSS contracts. No mobile browser visual QA claimed.');
+}finally{store.close();rmSync(folder,{recursive:true,force:true});}

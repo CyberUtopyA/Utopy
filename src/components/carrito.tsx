@@ -1,9 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import styled from "styled-components";
 import { X } from "lucide-react";
-import { spore } from "../utopy/spore.singleton";
-import { mtLiveUpsert } from "../mt/mt.liveStore";
-import { useLocalBuyerIdentity } from "../mt/uselocalbuyerindentity"; // <- ajustá el path real si está en otro lado
 import { useCartStore } from "./cardstore";
 const MOBILE_BP = 600;
 function isPlaceholderLike(x: any): boolean {
@@ -47,17 +44,17 @@ function normalizeImageSrc(x: any, mime = "image/png"): string {
 // =====================
 // UI
 // =====================
-const Overlay = styled.div<{ isOpen: boolean; show: boolean }>`
+const Overlay = styled.div<{ $isOpen: boolean; $show: boolean }>`
   position: fixed;
   inset: 0;
-  display: ${({ isOpen, show }) => (isOpen && show ? "block" : "none")};
+  display: ${({ $isOpen, $show }) => ($isOpen && $show ? "block" : "none")};
   background: rgba(0, 0, 0, 0.28);
   backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
   z-index: 999;
 `;
 
-const SidebarContainer = styled.aside<{ isOpen: boolean }>`
+const SidebarContainer = styled.aside<{ $isOpen: boolean }>`
   position: fixed;
   top: 0;
   right: 0;
@@ -74,7 +71,7 @@ const SidebarContainer = styled.aside<{ isOpen: boolean }>`
   box-shadow: -8px 0 30px rgba(0, 0, 0, 0.18);
   border-left: 1px solid rgba(0, 0, 0, 0.06);
 
-  transform: translateX(${({ isOpen }) => (isOpen ? "0%" : "100%")});
+  transform: translateX(${({ $isOpen }) => ($isOpen ? "0%" : "100%")});
   transition: transform 0.28s ease-in-out;
 
   z-index: 1000;
@@ -382,7 +379,6 @@ const CartSidebar: React.FC<Props> = ({
   const { cart, removeFromCart, setQty, clearCart } = useCartStore();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const { name: buyerName, buyerId } = useLocalBuyerIdentity();
 
   useEffect(() => {
     if (!isOpen) return;
@@ -392,58 +388,52 @@ const CartSidebar: React.FC<Props> = ({
       document.body.style.overflow = overflow;
     };
   }, [isOpen]);
-function resolveSellerKey(p: any, activeCajero?: any): { sellerId: string; sellerName?: string | null; cajaId?: string | null } {
-  // PRIORIDAD:
-  // 1) Si el producto trae caja/vendedor en meta (ideal)
+function resolveSellerKey(p: any): { sellerId: string; sellerName?: string | null; cajaId?: string | null } {
   const cajaId =
     p?.meta?.caja?.id ??
     p?.attrs?.meta?.caja?.id ??
     p?.attrs?.caja?.id ??
     null;
 
-  const cajaNombre =
-    p?.meta?.caja?.nombre ??
-    p?.attrs?.meta?.caja?.nombre ??
-    p?.attrs?.caja?.nombre ??
-    null;
-
-  // 2) Si trae productor (vendedor)
-  const prodId =
+  const sellerId =
+    p?.sellerId ??
+    p?.attrs?.sellerId ??
+    p?.meta?.sellerId ??
+    p?.nodeId ??
+    p?.attrs?.nodeId ??
+    p?.meta?.nodeId ??
+    p?.originNode ??
+    p?.attrs?.originNode ??
+    p?.meta?.originNode ??
+    p?.storeId ??
+    p?.attrs?.storeId ??
+    p?.meta?.storeId ??
     p?.productor?.id ??
     p?.attrs?.productor?.id ??
     p?.meta?.productor?.id ??
-    null;
+    "";
 
-  const prodName =
+  const sellerName =
+    p?.sellerName ??
+    p?.attrs?.sellerName ??
+    p?.meta?.sellerName ??
+    p?.storeName ??
+    p?.attrs?.storeName ??
+    p?.meta?.storeName ??
+    p?.nodeName ??
+    p?.attrs?.nodeName ??
     p?.productor?.nombre ??
     p?.attrs?.productor?.nombre ??
     p?.meta?.productor?.nombre ??
     null;
 
-  // 3) Fallback: activeCajero (caja elegida)
-  const fallbackId = activeCajero?.id ?? "seller:unknown";
-  const fallbackName = activeCajero?.nombre ?? null;
-
-  // Regla práctica:
-  // - Si hay cajaId úsalo como sellerId (pedido va a esa caja)
-  // - Si no, si hay prodId úsalo
-  // - Si no, fallback activeCajero
-  const sellerId = String(cajaId || prodId || fallbackId);
-  const sellerName = (cajaNombre || prodName || fallbackName) ?? null;
-
-  return { sellerId, sellerName, cajaId: cajaId ? String(cajaId) : null };
+  return {
+    sellerId: String(sellerId || ""),
+    sellerName: sellerName ? String(sellerName) : null,
+    cajaId: cajaId ? String(cajaId) : null,
+  };
 }
 
-function groupBySeller(items: any[], activeCajero?: any) {
-  const map = new Map<string, any[]>();
-  for (const it of items) {
-    const { sellerId } = resolveSellerKey(it, activeCajero);
-    const arr = map.get(sellerId) || [];
-    arr.push(it);
-    map.set(sellerId, arr);
-  }
-  return map;
-}
   // ✅ normalizar campos (vienen de DV o UI)
   const getId = (p: any) => String(p?.id ?? p?.attrs?.id ?? "");
 
@@ -521,14 +511,7 @@ const getImg = (p: any) => {
 
   // ✅ detectar vendedor/caja owner (para bloquear multi-vendedor)
   const getSellerId = (p: any) =>
-    safeStr(
-      p?.sellerId ??
-        p?.productor?.id ??
-        p?.meta?.sellerId ??
-        p?.meta?.caja?.id ??
-        p?.attrs?.sellerId ??
-        ""
-    );
+    safeStr(resolveSellerKey(p).sellerId);
 
   const sellerIds = useMemo(() => {
     const s = new Set<string>();
@@ -583,15 +566,9 @@ const confirmarPedido = async () => {
   setErr(null);
   if (!cart.length) return;
 
-  // ✅ si querés obligar "turno/caja elegida" para TODOS:
-  // si tus productos no traen meta.caja.id, entonces sí o sí necesitás activeCajero.
-  const anyHasSeller = cart.some((p: any) => {
-    const s = resolveSellerKey(p, activeCajero);
-    return s.sellerId && s.sellerId !== "seller:unknown";
-  });
-
-  if (!anyHasSeller && !activeCajero?.id) {
-    setErr("Elegí un cajero (Caja) antes de confirmar el pedido.");
+  const missingSeller = cart.some((product: any) => !resolveSellerKey(product).sellerId);
+  if (missingSeller) {
+    setErr("Uno de los productos no declara su comercio o nodo vendedor.");
     return;
   }
 
@@ -604,102 +581,7 @@ const confirmarPedido = async () => {
   try {
     setBusy(true);
 
-    // ✅ 1) agrupar por vendedor/caja
-    const groups = groupBySeller(cart, activeCajero);
-
-    // ✅ 2) crear 1 pedido por grupo
-    const createdOrders: Array<{
-      orderId: string;
-      threadId: string;
-      sellerId: string;
-      sellerName: string | null;
-      total: number;
-      items: any[];
-    }> = [];
-
-    for (const [sellerId, itemsRaw] of groups.entries()) {
-      const sellerName = resolveSellerKey(itemsRaw[0], activeCajero).sellerName ?? null;
-
-      const createdTs = Date.now();
-      const orderId = `market.order:${buyerId}:${sellerId}:${createdTs}`;
-      const threadId = `mt.thread.order:${buyerId}:${sellerId}:${createdTs}`;
-
-      const items = itemsRaw.map((p: any) => {
-        const unitPrice = getUnitPrice(p);
-        const qty = getQty(p);
-        return {
-          productId: String(getId(p)),
-          qty,
-          price: unitPrice,
-        };
-      });
-
-      const total = items.reduce((acc: number, it: any) => acc + (it.price * it.qty), 0);
-
-      // ✅ DV local (para Mis Pedidos / CajeroPanel)
-      mtLiveUpsert({
-        id: orderId,
-        kind: "market.order.create",
-        attrs: {
-          orderId,
-          threadId,
-
-          buyerId,
-          buyer: { id: buyerId, name: buyerName || null },
-
-          sellerId,
-          sellerName,
-
-          items,
-          total,
-
-          payment: { type: "cajero", cajeroId: activeCajero?.id ?? null }, // (o lo que uses)
-        },
-        traits: ["mt:order", "mt:market"],
-        meta: {
-          ns: "mt:market",
-          ts: new Date().toISOString(),
-          caja: activeCajero?.id ? { id: activeCajero.id, nombre: activeCajero.nombre } : undefined,
-          pay: activeCajero?.id ? { mode: "cajero", recommendedCajeroId: activeCajero.id } : { mode: "cajero" },
-          source: "ms.web.cart.checkout",
-        },
-      } as any);
-
-      // ✅ Intent a la red
-      try {
-        await spore?.sayIntent?.({
-          sym: "🛒",
-          say: "market.order.create",
-          with: {
-            orderId,
-            threadId,
-
-            buyerId,
-            buyer: { id: buyerId, name: buyerName || null },
-
-            sellerId,
-            sellerName,
-
-            items,
-            total,
-
-            payment: { type: "cajero", cajeroId: activeCajero?.id ?? null },
-
-            meta: {
-              ns: "mt:market",
-              caja: activeCajero?.id ? { id: activeCajero.id, nombre: activeCajero.nombre } : undefined,
-              pay: activeCajero?.id ? { mode: "cajero", recommendedCajeroId: activeCajero.id } : { mode: "cajero" },
-            },
-          },
-        });
-      } catch {}
-
-      createdOrders.push({ orderId, threadId, sellerId, sellerName, total, items });
-    }
-
-    // ✅ 3) si querés abrir “checkout UI”, ahora puede ser:
-    // - abrir un modal “Resumen” con N pedidos
-    // - o abrir el checkout del PRIMER pedido
+    // El carrito prepara contexto; Checkout crea la única orden canónica.
     onCheckout?.({
       kind: "market.cart.checkout",
       cajero: { id: String(activeCajero?.id || "caja:unknown"), nombre: activeCajero?.nombre },
@@ -717,9 +599,7 @@ const confirmarPedido = async () => {
           meta: p.meta,
         };
       }),
-      // EXTRA: te dejo “orders” adentro por si querés mostrarlo
-      orders: createdOrders,
-    } as any);
+    });
 
     // ✅ 4) limpiar y cerrar
     clearCart();
@@ -737,8 +617,8 @@ const confirmarPedido = async () => {
 
   return (
     <>
-      <Overlay isOpen={isOpen} show={showOverlay} onClick={onClose} aria-hidden={!isOpen} />
-      <SidebarContainer isOpen={isOpen} role="dialog" aria-modal="true" aria-label="Carrito">
+      <Overlay $isOpen={isOpen} $show={showOverlay} onClick={onClose} aria-hidden={!isOpen} />
+      <SidebarContainer $isOpen={isOpen} role="dialog" aria-modal="true" aria-label="Carrito">
         <Header>
           <h2>Carrito</h2>
           <CloseButton onClick={onClose} aria-label="Cerrar carrito">

@@ -162,6 +162,8 @@ export function startPaymentBotRuntime(opts: {
         latest.filter(
           (d) =>
             isKind(d, "payment.outcome") &&
+            Boolean(d?.meta?.ownership?.signature?.value) &&
+            safeStr(d?.meta?.authority) === safeStr(d?.attrs?.actingAsNodeId) &&
             orderId &&
             safeStr(d?.attrs?.orderId) === orderId
         ),

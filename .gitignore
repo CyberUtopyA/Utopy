@@ -10,6 +10,23 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+artifacts/
+tmp/
+dist.rar
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+.env
+.env.*
+!.env.example
+!.env.*.example
+.utopy-private/
+*.pem
+*.key
+*.p12
+*.pfx
 *.local
 
 # Editor directories and files

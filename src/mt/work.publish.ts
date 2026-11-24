@@ -1,48 +1,48 @@
-// ============================================
-// FILE: src/mt/work.publish.ts
-// Publicación real de DV laborales usando el mismo patrón
-// que OfferActionModal / mt.consult
-// ============================================
+// src/mt/work.publish.ts
+// Publicación única firmada sobre el liveStore y transporte existentes.
 
-import { mtLiveUpsert } from "./mt.liveStore";
+import { publishAuthorizedDV } from "../utopy/authorizedPublish";
 
-function nowIso() {
-  return new Date().toISOString();
-}
+export async function publishWorkDV(
+  dv: any,
+  options: {
+    allLive?: any[];
+    activeActor?: any | null;
+    actingAsNodeId?: string | null;
+    targetNodeId?: string | null;
+  } = {},
+) {
+  if (!dv?.id || !dv?.kind) {
+    throw new Error("El trabajo necesita id y kind antes de publicarse.");
+  }
 
-export async function publishWorkDV(dv: any) {
-  // optimista local
-  mtLiveUpsert(dv as any);
-
-  const upsertEnvelope = {
-    kind: "dv.upsert",
-    dv,
+  const now = new Date().toISOString();
+  const finalDV = {
+    ...dv,
     meta: {
-      nodeId: "ms:web",
-      ts: nowIso(),
-      ns: String(dv?.meta?.ns || "mt:market"),
-      source: "ms:web",
+      ...(dv.meta || {}),
+      ns: dv?.meta?.ns || "mt:market",
+      ts: dv?.meta?.ts || now,
+      updatedAt: now,
       scopes:
         Array.isArray(dv?.meta?.scopes) && dv.meta.scopes.length
           ? dv.meta.scopes
-          : ["public"],
+          : ["participants"],
+      source: dv?.meta?.source || "ms.market.work.publish",
     },
-    auth: "utopy-resonancia",
-    id: "ms:web",
-    ns: "mt",
   };
 
-  console.log("[MS] publishWorkDV dispatch", upsertEnvelope);
+  const result = await publishAuthorizedDV({
+    dv: finalDV,
+    allLive: options.allLive,
+    activeActor: options.activeActor,
+    actingAsNodeId: options.actingAsNodeId,
+    targetNodeId: options.targetNodeId,
+    sensitivity:
+      dv?.kind === "work.outcome" || dv?.kind === "work.quote.accepted"
+        ? "sensitive"
+        : "relationship",
+  });
 
-  try {
-    window.dispatchEvent(
-      new CustomEvent("utopy.emit", {
-        detail: upsertEnvelope,
-      })
-    );
-  } catch (e) {
-    console.warn("[MS] publishWorkDV utopy.emit fail", e);
-  }
-
-  return dv;
+  return result.dv;
 }

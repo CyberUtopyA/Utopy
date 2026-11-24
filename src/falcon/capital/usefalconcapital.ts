@@ -16,53 +16,82 @@ import {
   asCapitalProject,
 } from "../../pages/mtcapitalbridge";
 import { asCapitalTerritory } from "../../pages/mtcapitalbridge";
+import { buildFalconSelectionIndex, selectionForItem } from "../falcon.selection";
 
 function sortByCapitalScore<T extends { score?: number }>(items: T[]) {
   return [...items].sort((a, b) => (b.score || 0) - (a.score || 0));
 }
 
 export function useFalconCapital(cat?: string) {
-  const { loading, error, targetNamespaces, productos, territorios, orgs } = useFalconFeed();
+  cat = ({ yield: "renta", inversion: "activos", partners: "extranjero", premium: "destacados" } as Record<string, string>)[cat || ""] || cat;
+  const { loading, error, targetNamespaces, productos, territorios, orgs, liveDVs } = useFalconFeed();
+  const migratedSelections = useMemo(() => {
+    const previouslyVisible = [
+      ...productos.filter((item) => isCapitalAssetItem(item) || isCapitalPackItem(item)),
+      ...orgs.filter((item) => isCapitalProjectItem(item) || isStrategicOrg(item)),
+      ...territorios.filter(isTerritoryNode),
+    ];
+    return previouslyVisible.map((item: any) => ({
+      id: `falcon.selection:migrated:capital:${String(item?.id || item?.raw?.id || "item")}`,
+      kind: "falcon.selection",
+      attrs: { surface: "falcon.capital", targetId: String(item?.id || item?.raw?.id || ""), state: "selected", priority: 40, reason: "Curaduría semántica migrada de Falcon Capital" },
+      traits: ["falcon.selection", "falcon.curation", "migration:legacy-visibility"],
+      meta: { ns: "falcon:curation", scopes: ["public", "falcon"], authority: "falcon.curator.migration", updatedAt: item?.raw?.meta?.updatedAt || item?.raw?.meta?.ts || "2026-01-01T00:00:00.000Z" },
+    }));
+  }, [productos, orgs, territorios]);
+  const selectionIndex = useMemo(() => {
+    const migrated = buildFalconSelectionIndex(migratedSelections, "falcon.capital");
+    const explicit = buildFalconSelectionIndex(liveDVs, "falcon.capital");
+    explicit.forEach((decision, id) => migrated.set(id, decision));
+    return migrated;
+  }, [liveDVs, migratedSelections]);
+  const selected = (item: any) => {
+    const decision = selectionForItem(selectionIndex, item);
+    return decision?.state === "selected" || decision?.state === "pinned";
+  };
+  const curatedProducts = useMemo(() => productos.filter(selected), [productos, selectionIndex]);
+  const curatedOrgs = useMemo(() => orgs.filter(selected), [orgs, selectionIndex]);
+  const curatedTerritories = useMemo(() => territorios.filter(selected), [territorios, selectionIndex]);
 
   const packs = useMemo(() => {
     return sortByCapitalScore(
-      productos
+      curatedProducts
         .filter(isCapitalPackItem)
         .map((x) => asCapitalPack(x, scoreForSection(x, "capital")))
     );
-  }, [productos]);
+  }, [curatedProducts]);
 
   const assets = useMemo(() => {
     return sortByCapitalScore(
-      productos
+      curatedProducts
         .filter(isCapitalAssetItem)
         .map((x) => asCapitalAsset(x, scoreForSection(x, "capital")))
     );
-  }, [productos]);
+  }, [curatedProducts]);
 
   const projects = useMemo(() => {
     return sortByCapitalScore(
-      orgs
+      curatedOrgs
         .filter(isCapitalProjectItem)
         .map((x) => asCapitalProject(x, scoreForSection(x, "capital")))
     );
-  }, [orgs]);
+  }, [curatedOrgs]);
 
   const producers = useMemo(() => {
     return sortByCapitalScore(
-      orgs
+      curatedOrgs
         .filter(isStrategicOrg)
         .map((x) => asCapitalProducer(x, scoreForSection(x, "capital")))
     );
-  }, [orgs]);
+  }, [curatedOrgs]);
 
   const territoryItems = useMemo(() => {
     return sortByCapitalScore(
-      territorios
+      curatedTerritories
         .filter(isTerritoryNode)
         .map((x) => asCapitalTerritory(x, scoreForSection(x, "capital")))
     );
-  }, [territorios]);
+  }, [curatedTerritories]);
 
   const filteredAssets = useMemo(() => {
     if (!cat || cat === "destacados") return assets;
@@ -148,6 +177,7 @@ export function useFalconCapital(cat?: string) {
     error,
     summary,
     targetNamespaces,
+    liveDVs,
     assets,
     projects,
     producers,

@@ -1,0 +1,9 @@
+.ulm-quick-nav{display:flex;align-items:center;gap:8px;min-width:0;max-width:100%;overflow-x:auto;padding:2px 0 8px;overscroll-behavior-inline:contain;scrollbar-width:thin}
+.ulm-quick-nav button{flex:1 0 auto;display:flex;align-items:center;justify-content:center;gap:9px;min-height:52px;padding:12px 16px;border:1px solid #e8e5df;border-radius:16px;background:#faf9f6;color:#34342f;font:inherit;font-size:13px;font-weight:650;white-space:nowrap;cursor:pointer;transition:background .15s ease,transform .15s ease}
+.ulm-quick-nav svg{width:21px;height:21px;stroke-width:1.65;color:#706e64}
+.ulm-quick-nav button:hover{background:#efede7}.ulm-quick-nav button:active{transform:scale(.98);background:#e8e4f2}
+.ulm-quick-nav button:focus-visible{outline:2px solid #6756aa;outline-offset:-3px}
+.ulm-quick-nav button[data-selected=true]{background:#eeebf4;border-color:#c9c0dd;color:#3c3158}
+.ulm-context-preferences{font-size:12px;color:#62626a;padding:8px 0}.ulm-context-preferences summary,.ulm-recommendation-reason summary{cursor:pointer;min-height:32px;display:list-item}.ulm-context-preferences label,.ulm-context-preferences small{display:block;margin:8px 0}.ulm-context-preferences button,.ulm-recommendation-reason button{min-height:44px;border:1px solid #e1dfda;background:#faf9f6;color:#45434c;padding:8px 12px;border-radius:12px;cursor:pointer}.ulm-contextual-item{display:grid;grid-template-rows:1fr auto;min-width:0;scroll-snap-align:start}.ulm-contextual-item>.ulm-card{width:100%}.ulm-recommendation-reason{font-size:11px;color:#77727e;padding:8px 3px}.ulm-recommendation-reason p{line-height:1.5}
+@media(max-width:600px){.ulm-quick-nav{gap:6px}.ulm-quick-nav button{flex-direction:column;gap:6px;padding:10px 12px;min-width:76px;min-height:72px;font-size:12px}}
+@media(prefers-reduced-motion:reduce){.ulm-quick-nav button{transition:none;transform:none!important}}

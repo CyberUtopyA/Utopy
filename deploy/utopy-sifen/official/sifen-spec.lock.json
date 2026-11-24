@@ -1,0 +1,358 @@
+{
+  "manualVersion": "150",
+  "technicalNotesReviewed": [],
+  "technicalNotesApplied": [],
+  "conformanceComplete": false,
+  "wsdlVerified": false,
+  "resources": [
+    {
+      "file": "siRecepDE_v150.xsd",
+      "sourceUrl": "https://ekuatia.set.gov.py/sifen/xsd/siRecepDE_v150.xsd",
+      "sha256": "c4f566981645ca42afa3c98cedb85be3da4d3520051ab9c253a0f9deae99372f",
+      "retrievedAt": "2026-09-13T10:37:56.158Z",
+      "imports": [
+        "https://ekuatia.set.gov.py/sifen/xsd/DE_v150.xsd"
+      ],
+      "namespace": "http://ekuatia.set.gov.py/sifen/xsd"
+    },
+    {
+      "file": "WS_SiRecepLoteDE_v141.xsd",
+      "sourceUrl": "https://ekuatia.set.gov.py/sifen/xsd/WS_SiRecepLoteDE_v141.xsd",
+      "sha256": "c5bf03098c2f4c9f8aafb0602bfd2e6f7bf12620de3648cd571d593502f52c25",
+      "retrievedAt": "2026-09-13T10:37:56.193Z",
+      "imports": [
+        "https://ekuatia.set.gov.py/sifen/xsd/FE_Types_v141.xsd",
+        "https://ekuatia.set.gov.py/sifen/xsd/SIFEN_Types_v141.xsd"
+      ],
+      "namespace": "http://ekuatia.set.gov.py/sifen/xsd"
+    },
+    {
+      "file": "WS_SiConsLote_v141.xsd",
+      "sourceUrl": "https://ekuatia.set.gov.py/sifen/xsd/WS_SiConsLote_v141.xsd",
+      "sha256": "204ab6aef6ceef1eeac6a6e4a8ff02ab9851b622d22671d7af9fa5ff04cbfa4b",
+      "retrievedAt": "2026-09-13T10:37:56.213Z",
+      "imports": [
+        "https://ekuatia.set.gov.py/sifen/xsd/FE_Types_v141.xsd",
+        "https://ekuatia.set.gov.py/sifen/xsd/SIFEN_Types_v141.xsd"
+      ],
+      "namespace": "http://ekuatia.set.gov.py/sifen/xsd"
+    },
+    {
+      "file": "WS_SiConsDTE.xsd",
+      "sourceUrl": "https://ekuatia.set.gov.py/sifen/xsd/WS_SiConsDTE.xsd",
+      "sha256": "1322f21858c1310033d6bd972753eba8cfd2108f716a5cd8aee427b8f302a8e1",
+      "retrievedAt": "2026-09-13T10:37:56.245Z",
+      "imports": [
+        "https://ekuatia.set.gov.py/sifen/xsd/siConsultaDTE.xsd"
+      ],
+      "namespace": "http://ekuatia.set.gov.py/sifen/xsd"
+    },
+    {
+      "file": "DE_v150.xsd",
+      "sourceUrl": "https://ekuatia.set.gov.py/sifen/xsd/DE_v150.xsd",
+      "sha256": "83435e6aa50c36956e14ca3447a76c5eb551b26c75380b0314037f4b27561cb0",
+      "retrievedAt": "2026-09-13T10:37:56.276Z",
+      "imports": [
+        "https://ekuatia.set.gov.py/sifen/xsd/xmldsig-core-schema.xsd",
+        "https://ekuatia.set.gov.py/sifen/xsd/Paises_v100.xsd",
+        "https://ekuatia.set.gov.py/sifen/xsd/Departamentos_v141.xsd",
+        "https://ekuatia.set.gov.py/sifen/xsd/Monedas_v150.xsd",
+        "https://ekuatia.set.gov.py/sifen/xsd/Unidades_Medida_v141.xsd",
+        "https://ekuatia.set.gov.py/sifen/xsd/DE_Types_v150.xsd"
+      ],
+      "namespace": "http://ekuatia.set.gov.py/sifen/xsd"
+    },
+    {
+      "file": "FE_Types_v141.xsd",
+      "sourceUrl": "https://ekuatia.set.gov.py/sifen/xsd/FE_Types_v141.xsd",
+      "sha256": "70c5a1cab165802a54d709b9a6c564ee752e5260945d25479b3b17ec289a0d85",
+      "retrievedAt": "2026-09-13T10:37:56.296Z",
+      "imports": [],
+      "namespace": "http://ekuatia.set.gov.py/sifen/xsd"
+    },
+    {
+      "file": "SIFEN_Types_v141.xsd",
+      "sourceUrl": "https://ekuatia.set.gov.py/sifen/xsd/SIFEN_Types_v141.xsd",
+      "sha256": "b8e6d2c5b2ffd0972f123e7973f815cf11627ad8a0aba50bab42a385915e137a",
+      "retrievedAt": "2026-09-13T10:37:56.316Z",
+      "imports": [],
+      "namespace": "http://ekuatia.set.gov.py/sifen/xsd"
+    },
+    {
+      "file": "siConsultaDTE.xsd",
+      "sourceUrl": "https://ekuatia.set.gov.py/sifen/xsd/siConsultaDTE.xsd",
+      "sha256": "2ab97e27ffbc240eb2f9ed79b86259d94ce31abe6a2e5c8ce102fb679bb2de5c",
+      "retrievedAt": "2026-09-13T10:37:56.336Z",
+      "imports": [
+        "https://ekuatia.set.gov.py/sifen/xsd/xmldsig-core-schema.xsd",
+        "https://ekuatia.set.gov.py/sifen/xsd/DE_Types_v150.xsd",
+        "https://ekuatia.set.gov.py/sifen/xsd/SIFEN_Types_v141.xsd"
+      ],
+      "namespace": "http://ekuatia.set.gov.py/sifen/xsd"
+    },
+    {
+      "file": "xmldsig-core-schema.xsd",
+      "sourceUrl": "https://ekuatia.set.gov.py/sifen/xsd/xmldsig-core-schema.xsd",
+      "sha256": "f2c353a1238799c8cb2e996c9a4bb0ed9dba07a85e41c69f57e263d4b068dee6",
+      "retrievedAt": "2026-09-13T10:37:56.357Z",
+      "imports": [],
+      "namespace": "http://www.w3.org/2000/09/xmldsig#"
+    },
+    {
+      "file": "Paises_v100.xsd",
+      "sourceUrl": "https://ekuatia.set.gov.py/sifen/xsd/Paises_v100.xsd",
+      "sha256": "b75edd6b8ee0a10115104b7f0a5f6963485e41d3b78bcb5ef715a0763ecdc592",
+      "retrievedAt": "2026-09-13T10:37:56.385Z",
+      "imports": [],
+      "namespace": "http://ekuatia.set.gov.py/sifen/xsd"
+    },
+    {
+      "file": "Departamentos_v141.xsd",
+      "sourceUrl": "https://ekuatia.set.gov.py/sifen/xsd/Departamentos_v141.xsd",
+      "sha256": "1de13902a775dce85e124e814f1777dc24ab6f80903b23d3ffe05cdfce16351c",
+      "retrievedAt": "2026-09-13T10:37:56.409Z",
+      "imports": [],
+      "namespace": "http://ekuatia.set.gov.py/sifen/xsd"
+    },
+    {
+      "file": "Monedas_v150.xsd",
+      "sourceUrl": "https://ekuatia.set.gov.py/sifen/xsd/Monedas_v150.xsd",
+      "sha256": "16520dd42b5a6e463cb9fb84c74b0a5c9c7ca8542c813636bb390accc7ccdd72",
+      "retrievedAt": "2026-09-13T10:37:56.427Z",
+      "imports": [],
+      "namespace": "http://ekuatia.set.gov.py/sifen/xsd"
+    },
+    {
+      "file": "Unidades_Medida_v141.xsd",
+      "sourceUrl": "https://ekuatia.set.gov.py/sifen/xsd/Unidades_Medida_v141.xsd",
+      "sha256": "8a25e5e5decc0540cfdf6adc9fa43a3599ff1e6e5ecbb33e24a202cdf872b9fd",
+      "retrievedAt": "2026-09-13T10:37:56.447Z",
+      "imports": [],
+      "namespace": "http://ekuatia.set.gov.py/sifen/xsd"
+    },
+    {
+      "file": "DE_Types_v150.xsd",
+      "sourceUrl": "https://ekuatia.set.gov.py/sifen/xsd/DE_Types_v150.xsd",
+      "sha256": "99c5c2ca69eaf56781f8dd4bf6ce779e116ee807293e7eac15d1832634d29150",
+      "retrievedAt": "2026-09-13T10:37:56.478Z",
+      "imports": [],
+      "namespace": "http://ekuatia.set.gov.py/sifen/xsd"
+    },
+    {
+      "file": "WS_SiConsDE_v141.xsd",
+      "sourceUrl": "https://ekuatia.set.gov.py/sifen/xsd/WS_SiConsDE_v141.xsd",
+      "sha256": "61efae1d4804e5d89831e4d1059602729a031974dd8159db90ab52912afc482f",
+      "retrievedAt": "2026-09-13T16:35:40.879Z",
+      "imports": [
+        "https://ekuatia.set.gov.py/sifen/xsd/FE_Types_v141.xsd",
+        "https://ekuatia.set.gov.py/sifen/xsd/SIFEN_Types_v141.xsd"
+      ],
+      "namespace": "http://ekuatia.set.gov.py/sifen/xsd"
+    }
+  ],
+  "manualUrl": "https://ekuatia.set.gov.py/en/web/e-kuatia/documentacion-tecnica",
+  "wsdlRefs": [
+    "https://sifen-test.set.gov.py/de/ws/async/recibe-lote.wsdl?wsdl",
+    "https://sifen-test.set.gov.py/de/ws/consultas/consulta-lote.wsdl?wsdl",
+    "https://sifen-test.set.gov.py/de/ws/consultas/consulta.wsdl?wsdl"
+  ],
+  "referenceResources": [
+    {
+      "file": "NT027.pdf",
+      "sourceUrl": "https://ekuatia.set.gov.py/documents/20123/420595/NT_E_KUATIA_027_MT_V150.pdf/e5376c97-64cf-3fe0-e962-b6f22c8c207a?t=1773076266295",
+      "sha256": "3ff6fbbf9f54d938a777c8a98f0b18555af6b21014e2bc5349c7bfe56e2bb37d",
+      "retrievedAt": "2026-09-13T11:10:28.537Z"
+    },
+    {
+      "file": "NT026.pdf",
+      "sourceUrl": "https://ekuatia.set.gov.py/documents/20123/420595/NT_E_KUATIA_026_MT_V150.pdf/605010d6-22fe-b732-24ab-c6e9d7868b4f?t=1749487559733",
+      "sha256": "5ed252f144275c6c9d6ff47fc14021b173c912c4b92ba3572b36c327167119bc",
+      "retrievedAt": "2026-09-13T11:10:28.606Z"
+    },
+    {
+      "file": "NT025.pdf",
+      "sourceUrl": "https://ekuatia.set.gov.py/documents/20123/420595/NT_E_KUATIA_025_MT_V150.pdf/c6ad5e7d-bf0a-2be9-e5a0-a2a948ea1bc1?t=1745856915027",
+      "sha256": "3950e171f161fe360adda7e04dcd7ff2676b842b6e5f8da5c13fd974e8f916d2",
+      "retrievedAt": "2026-09-13T11:10:28.675Z"
+    },
+    {
+      "file": "NT024.pdf",
+      "sourceUrl": "https://ekuatia.set.gov.py/documents/20123/420595/NT_E_KUATIA_024_MT_V150.pdf/8f8c0fc6-ee49-74b6-469d-0f79c18065ed?t=1734614145050",
+      "sha256": "ccc2d1550e9227898e690a6025e9ab7ee1f47225dbab36acf8dda3bcb5570b9b",
+      "retrievedAt": "2026-09-13T11:10:28.768Z"
+    },
+    {
+      "file": "NT023.pdf",
+      "sourceUrl": "https://ekuatia.set.gov.py/documents/20123/420595/NT_E_KUATIA_023_MT_V150.pdf/9580922b-5dd5-60f9-4857-ae66a757898f?t=1724967650006",
+      "sha256": "9cb063673358891eb867674c5f8f7a10487512b86c5ae5fc4d0ce438a95c0b03",
+      "retrievedAt": "2026-09-13T11:10:28.830Z"
+    },
+    {
+      "file": "NT022.pdf",
+      "sourceUrl": "https://ekuatia.set.gov.py/documents/20123/420595/NT_E_KUATIA_022_MT_V150.pdf/c7795a15-03be-caac-b664-692853c0f442?t=1709739358545",
+      "sha256": "269840094089b2b39b352b228c9c482eb4b65e0e3ef3c7e6863f0a046c739b1b",
+      "retrievedAt": "2026-09-13T11:10:28.880Z"
+    },
+    {
+      "file": "NT021.pdf",
+      "sourceUrl": "https://ekuatia.set.gov.py/documents/20123/420595/NT_E_KUATIA_021_MT_V150+30.12.24.pdf/ab12f22b-42a2-9bd4-e3a0-7141d9e4b8d0?t=1735592286335",
+      "sha256": "1e716577d874b4ce2f70947016cd4426069d53434ff1c59b1b1b69eb2eba94c8",
+      "retrievedAt": "2026-09-13T11:10:28.979Z"
+    },
+    {
+      "file": "NT020.pdf",
+      "sourceUrl": "https://ekuatia.set.gov.py/documents/20123/420595/NT_E_KUATIA_020_MT_V150.pdf/f9a47078-748e-db87-bf2f-e6826ef048b9?t=1700253534040",
+      "sha256": "0d877d1fb16aa1db5676619816dd9ef0643aadd6c28dbd2001fe988b35db7523",
+      "retrievedAt": "2026-09-13T11:10:29.019Z"
+    },
+    {
+      "file": "NT019.pdf",
+      "sourceUrl": "https://ekuatia.set.gov.py/documents/20123/420595/NT_E_KUATIA_019_MT_V150.pdf/23bd2a28-9449-f31d-3d46-7f037706880d?t=1700253533804",
+      "sha256": "c3fcd3bd96d0c11ab51add6c1ce4323ea2b1da6627d9c61091ab016318045cb4",
+      "retrievedAt": "2026-09-13T11:10:29.069Z"
+    },
+    {
+      "file": "NT018.pdf",
+      "sourceUrl": "https://ekuatia.set.gov.py/documents/20123/420595/NT_E_KUATIA_018_MT_V150-+Junio.pdf/2ace18c4-5c03-c339-7f5c-bed6d5b5eb5e?t=1717710699642",
+      "sha256": "96079a30c8c19e82fb630eba1487dc16dd6744ffda63abcf8124972049edd840",
+      "retrievedAt": "2026-09-13T11:10:29.156Z"
+    },
+    {
+      "file": "NT017.pdf",
+      "sourceUrl": "https://ekuatia.set.gov.py/documents/20123/420595/NT_E_KUATIA_017_MT_V150.pdf/6e3ccc6a-49eb-96fd-b2b6-86405bb2c4c5?t=1692977786216",
+      "sha256": "21112d7c0a1a19ce94b875c5d734273cd07992c1383429f7dedf9d119591b55c",
+      "retrievedAt": "2026-09-13T11:10:29.237Z"
+    },
+    {
+      "file": "NT016.pdf",
+      "sourceUrl": "https://ekuatia.set.gov.py/documents/20123/420595/NT_E_KUATIA_016_MT_V150.pdf/fbb16776-262b-7330-e609-f509304413d4?t=1692977785955",
+      "sha256": "6406e5e6cd4f9475ce786a674b401040a5e44655c6b786739ae2ef304c49df4a",
+      "retrievedAt": "2026-09-13T11:10:29.310Z"
+    },
+    {
+      "file": "NT015.pdf",
+      "sourceUrl": "https://ekuatia.set.gov.py/documents/20123/420595/NT_E_KUATIA_015_MT_V150.pdf/f7f54b14-d4a8-d7c1-0549-804da511187e?t=1692655153604",
+      "sha256": "d41ae8e7d1fdbcf6f72bb276f3903e8b7a111797dd25f1e342abb402b60cb09a",
+      "retrievedAt": "2026-09-13T11:10:29.554Z"
+    },
+    {
+      "file": "NT014.pdf",
+      "sourceUrl": "https://ekuatia.set.gov.py/documents/20123/420595/NT_E_KUATIA_014_MT_V150X.pdf/dbbb0294-8678-357a-1657-bcd0318077f9?t=1706200657282",
+      "sha256": "5320a52a9152e8c7707dbb92e360487242c1910747f4177ceb9cbdc0c87985de",
+      "retrievedAt": "2026-09-13T11:10:29.622Z"
+    },
+    {
+      "file": "NT013.pdf",
+      "sourceUrl": "https://ekuatia.set.gov.py/documents/20123/420595/NT_E_KUATIA_013_MT_V150.pdf/ba73ec3b-5901-ae28-5d8c-9bed5632ab89?t=1687364547529",
+      "sha256": "5e9e85ec22f1d1081da69ea61e4b1fdf4f2ee2a57d88b0549b3b4c4f2b378af3",
+      "retrievedAt": "2026-09-13T11:10:29.840Z"
+    },
+    {
+      "file": "NT012.pdf",
+      "sourceUrl": "https://ekuatia.set.gov.py/documents/20123/420595/NT_E_KUATIA_012_MT_V150.pdf/28807b7c-a7ee-9033-ab3f-75a0fcd52091?t=1687364547383",
+      "sha256": "3f9243e48a0a27f7283b08f8534d33a2189060012895eb8adabf19ff04e142e7",
+      "retrievedAt": "2026-09-13T11:10:29.991Z"
+    },
+    {
+      "file": "NT011.pdf",
+      "sourceUrl": "https://ekuatia.set.gov.py/documents/20123/420595/NT_E_KUATIA_011_MT_V150.pdf/faada1a3-f158-90fe-795a-c7f30e61fb84?t=1687364547032",
+      "sha256": "6abf95164f4eba6dfc6790e9f9361fe5d1545b83fba561ac130ff89afabc6224",
+      "retrievedAt": "2026-09-13T11:10:30.157Z"
+    },
+    {
+      "file": "NT010.pdf",
+      "sourceUrl": "https://ekuatia.set.gov.py/documents/20123/420595/NT_E_KUATIA_010_MT_V150.pdf/d64a693b-6c63-86e1-ec6a-d4fe5ec4eeea?t=1687364547196",
+      "sha256": "d261165c512c6b248598e98685f307f88da50f0ecc28cb25d94157d4a9cad711",
+      "retrievedAt": "2026-09-13T11:10:30.244Z"
+    },
+    {
+      "file": "NT009.pdf",
+      "sourceUrl": "https://ekuatia.set.gov.py/documents/20123/420595/NT_E_KUATIA_009_MT_V150.pdf/c268a447-11e3-ee1e-b4d5-8d83dd408401?t=1687364546900",
+      "sha256": "bc6a85c1e77eeee29a7acefae91dd0e5cd1e4157e638ed32c527962bfe7e61aa",
+      "retrievedAt": "2026-09-13T11:10:30.341Z"
+    },
+    {
+      "file": "NT008.pdf",
+      "sourceUrl": "https://ekuatia.set.gov.py/documents/20123/420595/NT_E_KUATIA_008_MT_V150.pdf/81fba389-0f27-e757-88c3-ec7b3dbab90b?t=1687364546734",
+      "sha256": "2b1c2f0b25e92e16b88d170611e3384b318e495242fe5731f906f8770f2e40e8",
+      "retrievedAt": "2026-09-13T11:10:30.410Z"
+    },
+    {
+      "file": "NT007.pdf",
+      "sourceUrl": "https://ekuatia.set.gov.py/documents/20123/420595/NT_E_KUATIA_007_MT_V150.pdf/d6b31757-8906-a326-4e92-f9ec4b5d7706?t=1687364546603",
+      "sha256": "ad25333d61ec5a74b4832da392c0d89112d9d40dc3adb14bab028cabfe200846",
+      "retrievedAt": "2026-09-13T11:10:30.457Z"
+    },
+    {
+      "file": "NT006.pdf",
+      "sourceUrl": "https://ekuatia.set.gov.py/documents/20123/420595/NT_E_KUATIA_006_MT_V150+.pdf/9554f3e6-ffb6-17b6-bd53-4e4c87a8800d?t=1687364546470",
+      "sha256": "44db68fbdcc1bbfbc48e72d92ddf80bd3f42424b9c9a0add92becc44c38e2da1",
+      "retrievedAt": "2026-09-13T11:10:30.516Z"
+    },
+    {
+      "file": "NT005.pdf",
+      "sourceUrl": "https://ekuatia.set.gov.py/documents/20123/420595/NT_E_KUATIA_005_MT_V150.pdf/098e75de-e878-7bcd-49ec-55c33a45a0a7?t=1687364546324",
+      "sha256": "6889f1fc4f2e3300292f93bf3165449d31258c274d53b9269c00d352920d51d5",
+      "retrievedAt": "2026-09-13T11:10:30.565Z"
+    },
+    {
+      "file": "NT004.pdf",
+      "sourceUrl": "https://ekuatia.set.gov.py/documents/20123/420595/NT_E_KUATIA_004_MT_V150.pdf/97868c1a-ef6f-af63-025b-515e9564997e?t=1687364546153",
+      "sha256": "185619ec4badc431187cdfd79e4095161e52665a164595a5ab33862db1507c58",
+      "retrievedAt": "2026-09-13T11:10:30.620Z"
+    },
+    {
+      "file": "NT003.pdf",
+      "sourceUrl": "https://ekuatia.set.gov.py/documents/20123/420595/NT_E_KUATIA_003_MT_V150.pdf/dd4689ee-164a-29b3-9c3f-44cbef55bcf5?t=1687364545998",
+      "sha256": "3d27fa591b59a56c7f03cf17340c67b359dfebed23c14c8dff655998ebfc03e8",
+      "retrievedAt": "2026-09-13T11:10:30.704Z"
+    },
+    {
+      "file": "NT002.pdf",
+      "sourceUrl": "https://ekuatia.set.gov.py/documents/20123/420595/NT_E_KUATIA_002_MT_V150.pdf/b3656789-f42a-e578-4141-45046e452f41?t=1687364545841",
+      "sha256": "6aaf4a8f4797442049d771a2984a2519dd46b45633f22be1c55ae869b0d20e87",
+      "retrievedAt": "2026-09-13T11:10:30.779Z"
+    },
+    {
+      "file": "NT001.pdf",
+      "sourceUrl": "https://ekuatia.set.gov.py/documents/20123/420595/NT_E_KUATIA_001_MT_V150.pdf/c4d2ab8e-632b-dc8f-d3f6-6a144a3a3d9c?t=1687364545680",
+      "sha256": "4c47b667084dce5ee790b764af09c9b224c6cd0473555282ff07c18146a7e008",
+      "retrievedAt": "2026-09-13T11:10:30.835Z"
+    },
+    {
+      "file": "manual-v150.pdf",
+      "sourceUrl": "https://ekuatia.set.gov.py/documents/20123/420592/Manual%2BT%C3%A9cnico%2BVersi%C3%B3n%2B150.pdf/e706f7c7-6d93-21d4-b45b-5d22d07b2d22?t=1687362295907.pdf",
+      "sha256": "976cd88c05c31041ee86db1667e1b426e2d9ddf675d941973d5918cbdc5427c6",
+      "retrievedAt": "2026-09-13T11:10:30.881Z"
+    }
+  ],
+  "technicalNotesAvailable": [
+    "001",
+    "002",
+    "003",
+    "004",
+    "005",
+    "006",
+    "007",
+    "008",
+    "009",
+    "010",
+    "011",
+    "012",
+    "013",
+    "014",
+    "015",
+    "016",
+    "017",
+    "018",
+    "019",
+    "020",
+    "021",
+    "022",
+    "023",
+    "024",
+    "025",
+    "026",
+    "027"
+  ]
+}

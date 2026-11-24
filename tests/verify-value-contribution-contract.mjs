@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { transformWithEsbuild } from 'vite';
+const source=await readFile(new URL('../src/value/value.builders.ts',import.meta.url),'utf8');
+const {code}=await transformWithEsbuild(source,'value.builders.ts',{loader:'ts',format:'esm',target:'es2022'});
+const value=await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+const need=value.buildValueNeedDV({nodeId:'simulation:node',needKey:'materials',title:'Test',requirements:[{kind:'material',amount:2}],simulation:true});
+const contribution=value.buildValueContributionDV({need,actorId:'simulation:actor',capabilityKind:'material',capabilityKey:'wood',mode:'contribution',amount:2,unit:'units'});
+assert.equal(contribution.attrs.status,'offered');assert.equal(contribution.attrs.needId,need.id);
+assert.equal(contribution.attrs.simulation,true);assert.equal(contribution.attrs.nonTradable,true);
+assert.equal(contribution.meta.authority,'simulation:actor');assert.equal(contribution.meta.threadId,need.meta.threadId);
+assert.throws(()=>value.buildValueContributionDV({need:{},actorId:'simulation:actor'}));
+console.log('OK: contribution preserves need/thread, consent state, actor authority and non-tradability.');

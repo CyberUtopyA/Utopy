@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import type { PresenceAction, PresenceSignal } from "./presence.types";
 
 export type PresenceActionHandlers = {
@@ -9,44 +9,70 @@ export type PresenceActionHandlers = {
   openInvoice?: (payload: any, signal: PresenceSignal) => void;
   openMarket?: (signal: PresenceSignal) => void;
   openDesigner?: (payload: any, signal: PresenceSignal) => void;
+  openWhatsApp?: (payload: any, signal: PresenceSignal) => void;
+  openMap?: (payload: any, signal: PresenceSignal) => void;
+  emitSignal?: (payload: any, signal: PresenceSignal) => void;
+  respondSignal?: (payload: any, signal: PresenceSignal) => void;
+  requestUtopy?: (payload: any, signal: PresenceSignal) => void;
+  connectNode?: (payload: any, signal: PresenceSignal) => void;
   custom?: (action: PresenceAction, signal: PresenceSignal) => void;
 };
 
 export function usePresenceActions(handlers: PresenceActionHandlers) {
+  const stable = useMemo(() => handlers, [handlers]);
+
   return useCallback(
     (action: PresenceAction, signal: PresenceSignal) => {
       switch (action.type) {
         case "open_product":
           if (action.payload?.productId) {
-            handlers.openProduct?.(String(action.payload.productId), signal);
+            stable.openProduct?.(String(action.payload.productId), signal);
           }
           return;
         case "open_offer":
           if (action.payload?.offerId) {
-            handlers.openOffer?.(String(action.payload.offerId), signal);
+            stable.openOffer?.(String(action.payload.offerId), signal);
           }
           return;
         case "open_checkout":
-          handlers.openCheckout?.(action.payload || {}, signal);
+          stable.openCheckout?.(action.payload || {}, signal);
           return;
         case "open_thread":
           if (action.payload?.threadId) {
-            handlers.openThread?.(String(action.payload.threadId), signal);
+            stable.openThread?.(String(action.payload.threadId), signal);
           }
           return;
         case "open_invoice":
-          handlers.openInvoice?.(action.payload || {}, signal);
+          stable.openInvoice?.(action.payload || {}, signal);
           return;
         case "open_market":
-          handlers.openMarket?.(signal);
+          stable.openMarket?.(signal);
           return;
         case "open_designer":
-          handlers.openDesigner?.(action.payload || {}, signal);
+          stable.openDesigner?.(action.payload || {}, signal);
+          return;
+        case "open_whatsapp":
+          stable.openWhatsApp?.(action.payload || {}, signal);
+          return;
+        case "open_map":
+          stable.openMap?.(action.payload || {}, signal);
+          return;
+        case "emit_signal":
+          stable.emitSignal?.(action.payload || {}, signal);
+          return;
+        case "respond_signal":
+          stable.respondSignal?.(action.payload || {}, signal);
+          return;
+        case "request_utopy":
+          stable.requestUtopy?.(action.payload || {}, signal);
+          return;
+        case "connect_node":
+          stable.connectNode?.(action.payload || {}, signal);
           return;
         default:
-          handlers.custom?.(action, signal);
+          stable.custom?.(action, signal);
       }
     },
-    [handlers]
+    [stable]
   );
 }

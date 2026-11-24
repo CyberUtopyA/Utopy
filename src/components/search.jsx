@@ -168,6 +168,7 @@ export default function SearchBar({ setFilters }) {
     transaction_fee: "",
     priceMin: "",
     priceMax: "",
+    currency: "PYG",
     operation: "",
   });
 
@@ -261,6 +262,11 @@ export default function SearchBar({ setFilters }) {
           placeholder="Precio máximo"
           onChange={handleFilterChange}
         />
+
+        <Select name="currency" value={filters.currency} onChange={handleFilterChange}>
+          <option value="PYG">Gs. (PYG)</option>
+          <option value="BRL">R$ (BRL)</option>
+        </Select>
 
         <Select name="operation" onChange={handleFilterChange}>
           <option value="">Operación</option>

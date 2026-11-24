@@ -1,0 +1,43 @@
+import assert from 'node:assert/strict';
+import {createServer as createHTTPServer} from 'node:http';
+import {mkdtempSync,rmSync,readFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join,resolve,sep} from 'node:path';
+import {createServer,transformWithEsbuild} from 'vite';
+import {LivingBookingStore} from '../server/booking/store.mjs';
+import {livingBookingHandler} from '../server/booking/http.mjs';
+import {localInstant} from '../src/booking/contracts.mjs';
+const vite=await createServer({configFile:false,server:{middlewareMode:true},appType:'custom',logLevel:'silent'});
+const folder=mkdtempSync(join(tmpdir(),'utopy-mt-booking-')),path=join(folder,'fixture.sqlite');
+const authorize=async({proof,nodeId,action})=>proof?.simulation===true&&proof?.nonTradable===true&&proof.nodeId===nodeId?{verified:true,actorId:proof.actorId,nodeId,allowedActions:['booking.configure','booking.manage'].includes(action)&&proof.actorId!=='actor:fixture:owner'?[]:[action]}:null;
+let store=new LivingBookingStore(path,{authorize,now:()=>Date.parse('2030-01-01')});
+const server=createHTTPServer((req,res)=>livingBookingHandler(store)(req,res));await new Promise(done=>server.listen(0,'127.0.0.1',done));
+const endpoint=`http://127.0.0.1:${server.address().port}/api/living-booking`;
+const request=async(url,nodeId,op,input={},proof)=>{const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nodeId,op,...input,...(proof?{proof:{...proof,payload:{nodeId,op,...input}}}:{})})});const body=await response.json();if(!response.ok||!body.ok)throw Error(body.error);return body.result;};
+try{
+ const {bookingPreviewConfig}=await vite.ssrLoadModule('/src/booking/previewConfig.ts');
+ const adapter=await vite.ssrLoadModule('/src/booking/territorialBooking.ts');
+ const discovery=await vite.ssrLoadModule('/src/utopy/territoryDiscovery.ts');
+ const entries=[];
+ for(const brand of ['lua','bassi']){const config=bookingPreviewConfig(brand);config.nodeId=`test:mt:${brand}`;config.simulation=true;config.nonTradable=true;config.confirmation='automatic';const proof={nodeId:config.nodeId,actorId:'actor:fixture:owner',simulation:true,nonTradable:true};await request(endpoint,config.nodeId,'configure',{config,version:0},proof);entries.push({nodeId:config.nodeId,slug:`fixture-${brand}`,name:`Fixture ${brand}`,manifest:{attrs:{booking:{},endpoints:{livingBooking:endpoint}}}});}
+ const catalog=await adapter.loadTerritorialBookingCatalog(entries,request,()=>endpoint);assert.equal(catalog.issues.length,0);assert(catalog.rows.length>0);assert(catalog.rows.every(row=>row.raw===row.entry.manifest));assert(catalog.rows.every(row=>new URL(row.href,'http://fixture').searchParams.get('service')===row.serviceId));assert(catalog.rows.every(row=>row.href.includes('from=mt')));
+ const node=entries[0].nodeId,row=catalog.rows.find(r=>r.sellerNodeId===node&&r.bookable);assert(row);
+ const professional=store.config(node).resources[0].id,date='2030-01-08';const slots=await request(endpoint,node,'slots',{date,serviceId:row.serviceId,professionalId:professional});assert(slots.some(s=>s.label==='09:00'));assert(!slots.some(s=>s.label==='12:00'));
+ const proof={nodeId:node,actorId:'actor:fixture:tenant',simulation:true,nonTradable:true};const command={op:'create',date,start:slots[0].start,serviceId:row.serviceId,professionalId:professional};
+ const created=await request(endpoint,node,'command',{requestKey:'fixture:mt:create',command},proof);const adminProof={...proof,actorId:'actor:fixture:owner'};
+ assert((await request(endpoint,node,'list',{admin:true},adminProof)).some(b=>b.id===created.booking.id),'MT operation must be the same booking in original manager');
+ await assert.rejects(()=>request(endpoint,node,'list',{admin:true},proof),/FORBIDDEN/,'Tenant cannot read the administrative agenda');
+ await assert.rejects(()=>request(endpoint,node,'command',{requestKey:'fixture:mt:duplicate',command},{...proof,actorId:'actor:fixture:other'}),/SLOT_OCCUPIED/);
+ await assert.rejects(()=>request(endpoint,node,'list',{}, {...proof,nodeId:entries[1].nodeId}),/FORBIDDEN/);
+ const changed=await request(endpoint,node,'command',{requestKey:'fixture:mt:move',command:{op:'reschedule',id:created.booking.id,version:created.booking.version,date,start:localInstant(date,'14:00'),admin:true}},adminProof);
+ store.close();store=new LivingBookingStore(path,{authorize,now:()=>Date.parse('2030-01-01')});
+ const saved=(await request(endpoint,node,'list',{},proof))[0];assert.equal(saved.start,localInstant(date,'14:00'));
+ await request(endpoint,node,'command',{requestKey:'fixture:mt:cancel',command:{op:'cancel',id:saved.id,version:saved.version}},proof);assert.equal((await request(endpoint,node,'list',{},proof))[0].status,'cancelled');
+ const mismatch={...store.config(node),nodeId:'other'};assert.throws(()=>adapter.projectTerritorialBooking(entries[0],mismatch));
+ const disconnected=await adapter.loadTerritorialBookingCatalog(entries,request,()=> '');assert.equal(disconnected.rows.length,0);assert.equal(disconnected.issues.length,2);
+ assert(discovery.matchTerritoryQuery({title:'Hamburguesa',category:'Comida'},'quiero almorzar'));assert(!discovery.matchTerritoryQuery({title:'Corte',category:'Belleza'},'quiero almorzar'));
+ assert(discovery.mtIntentionMatches({title:'Masajes',category:'Servicios'},'Belleza'));assert(!discovery.mtIntentionMatches({title:'Mesa',category:'Muebles',seller:'Café ficticio'},'Comida'));
+ for(const file of ['src/components/TerritoryHome.tsx','src/booking/useTerritorialBooking.ts','src/booking/territorialBooking.ts','src/booking/BookingExperience.tsx','src/components/UnifiedLivingMarket.tsx','src/components/LivingProfileQuickView.tsx','src/pages/mercado.tsx','src/utopy/territoryDiscovery.ts'])await transformWithEsbuild(readFileSync(file,'utf8'),file,{loader:'tsx'});
+ assert.match(readFileSync('src/App.jsx','utf8'),/path="\/mt"/);assert.match(readFileSync('src/booking/BookingExperience.tsx','utf8'),/new URLSearchParams\(location.search\).get\('service'\)/);
+ console.log('OK MT: real localhost HTTP + SQLite for two fixture nodes; public catalog adapter, service deep link, live slots/breaks, same booking visible to original manager, conflict rejection, reschedule, cancel, reopen, node isolation and honest missing endpoints. Test-only authorization adapter; no production/Android or global identity claim.');
+}finally{await new Promise(done=>server.close(done));store.close();await vite.close();if(resolve(folder).startsWith(resolve(tmpdir())+sep)&&folder.includes('utopy-mt-booking-'))rmSync(folder,{recursive:true,force:true});}

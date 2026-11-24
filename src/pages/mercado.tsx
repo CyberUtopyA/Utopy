@@ -10,16 +10,57 @@
 // ✅ Desktop: tabs arriba (no bottom nav) + botón Producir visible
 // ------------------------------------------------------------
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import styled from "styled-components";
-import { CarrotIcon, Bell, BellOff, SendHorizonalIcon, Share2Icon } from "lucide-react";
-import NotificationSelectorModal from "./Notificacion";
+import {
+  CarrotIcon,
+  SendHorizonalIcon,
+  Share2Icon,
+  ShoppingCart,
+  Eye,
+  Box as BoxIcon,
+  Store,
+  Tags,
+  Megaphone,
+  PackageCheck,
+  CirclePlus,
+  MapPinned,
+  Compass,
+  Home,
+  Activity,
+  Search,
+  UserRound,
+  Mic,
+} from "lucide-react";
+import FrequencyVivaModal from "./Notificacion";
 // ✅ AR viewer web
-import "@google/model-viewer";
 import Portal from "./ui/portal"; // ajustá ruta
-import { mtLiveUpsert, mtLiveSubscribe } from "../mt/mt.liveStore";
+import { mtLiveSnapshot, mtLiveUpsert, mtLiveSubscribe, mtLiveSetAccessContext } from "../mt/mt.liveStore";
+import { acquireLiveSymbiosis } from "../utopy/liveSymbiosis.singleton";
 import { useCartStore } from "../components/cardstore";
 import CartSidebar from "../components/carrito";
+import LiveProductCard from "../components/LiveProductCard";
+import UniversalProductDialog, { formatUniversalMoney, projectUniversalProduct, universalProductToCheckoutProduct } from "../components/UniversalProductDialog";
+import { productPathFor, readProductOrigin, rememberProductOrigin, resolveProductRoute } from "../mt/productRoute";
+import LiveOfferCard from "../components/LiveOfferCard";
+import LiveSearchOverlay from "../components/LiveSearchOverlay";
+import LivingHighlights from "../components/LivingHighlights";
+import LivingProfileQuickView from "../components/LivingProfileQuickView";
+import GlobalConversationsModal from "../components/GlobalConversationsModal";
+import UnifiedLivingMarket, { isFoodLivingCategory } from "../components/UnifiedLivingMarket";
+import { useLivingSpaceNavigation } from "../utopy/livingSpaceNavigation";
+import { resolveLiveImage, resolveLiveSeller } from "../mt/livePresentation";
+import { readPublishedMerchandising } from "../mt/productMerchandising";
+import {
+  resolveCurrentIdentityContext,
+  type CurrentIdentityContext,
+} from "../utopy/identityContext";
+import { publishAuthorizedDV } from "../utopy/authorizedPublish";
+import { projectLiveProfiles } from "../social/liveProfile";
+import { profileHandleForIdentity } from "../mt/productRoute";
+import { canRelate, geoPoint, type TerritorialMode } from "../utopy/territorialCompatibility";
+import { projectRentalProperties } from "../mt/rental.domain";
+import { rentalDisplayPrice } from "../utils/rentalProperty";
 
 import {
   adaptDatosToMtProducts,
@@ -41,13 +82,11 @@ import { isAdminOrSupervisor } from "../mt/mt.cajeroroles";
 import CajeroAuthPanel from "../mt/CajeroAuthPanel";
 import CajeroPedidosPanel from "../mt/pedidos";
 import BuyerOrdersPanel from "../mt/buyerorderpanel";
-import CheckoutModal from "./checkoutmodal";
 import OfferActionModal from "../mt/offeractionmodal";
 import TradeInboxPanel from "../mt/tradeinboxPanel";
-import { requestPushPermission } from "../onesignal";
-import { clearNamespaceTags, setNamespaceTag } from "../pushtags";
 import { resolveOfferThreadId, resolveProductThreadId } from "../mt/tradeThread";
 import FabricaVivaPanel from "../mt/fabricaviva";
+import MODesignOfferSection from "../mt/MODesignOfferSection";
 import InvoiceCenter from "../mt/invoicecenter";
 import MtPresenceOverlay from "../utopy/presence/Mt.presence.overlay";
 import { usePresenceEmitter } from "../utopy/presence/usepresenceemitter";
@@ -58,11 +97,22 @@ import PresenceHeatBadge from "../utopy/presence/PresenceHeatBadge";
 import PresenceNowChip from "../utopy/presence/PresenceNowChip";
 import WorkInboxPanel from "../mt/workinboxpanel";
 import ProducerQueuePanel from "../mt/ProducerQueuePanel";
+const ProductionQueueWorkspace = lazy(() => import("../components/ProductionQueueWorkspace"));
 import { startPaymentBotRuntime } from "../mt/paymentbotruntime";
 import { useTradeIntentReceiver } from "../mt/usetradeintentreceiver";
-import CircularCenter from "./circularcenter";
+import type { CircularWorldView } from "./circularcenter";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { publishDatoVivo } from "../mt/seedbus";
+import {
+  buildLinkedWorkIntentDV,
+  requestApproximateBrowserLocation,
+} from "../mt/mt.threadProtocol";
+
+const CheckoutModal = lazy(() => import("./checkoutmodal"));
+const CircularCenter = lazy(() => import("./circularcenter"));
+const LiveNetworkPanel = lazy(() => import("../social/LiveNetworkPanel"));
+const LivingCreationWorkspace = lazy(() => import("../components/LivingCreationWorkspace"));
+const NodeOperationPanel = lazy(() => import("../components/LivingNodePanel"));
 
 // =========================================================
 // Estilos base + responsive
@@ -141,22 +191,33 @@ const ProducePill = styled.span<{ tone?: "ok" | "warn" | "neutral" }>`
       : "rgba(0,0,0,0.04)"};
 `;
 const Page = styled.div`
-  width: 100vw;
+  width: 100%;
+  min-width: 0;
+  overflow-x: clip;
   min-height: 100vh;
-  background: #fafafa;
+  background: linear-gradient(180deg, #fffdf9 0%, #faf9f7 42%, #f7f8fa 100%);
   display: flex;
   flex-direction: column;
   align-items: center;
+  /* Avoid full-surface blur compositing on touch devices. */
+  @media (pointer: coarse) {
+    & * { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    & *, & *::before, & *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  }
 `;
 
 const Content = styled.div`
   width: 100%;
-  max-width: 1100px;
-  padding: 12px;
-  padding-bottom: calc(76px + env(safe-area-inset-bottom)); /* bottom nav */
+  min-width: 0;
+  max-width: ${({ $circular }: { $circular?: boolean }) => $circular ? "none" : "1280px"};
+  padding: ${({ $circular }) => $circular ? "0" : "12px"};
+  padding-bottom: ${({ $circular }) => $circular ? "0" : "calc(112px + env(safe-area-inset-bottom))"};
+
   @media (min-width: 900px) {
-    padding: 16px;
-    padding-bottom: 16px; /* desktop no necesita bottom nav */
+    padding: ${({ $circular }) => $circular ? "0" : "16px"};
+    padding-bottom: ${({ $circular }) => $circular ? "0" : "110px"};
   }
 `;
 const PresenceMiniBar = styled.div`
@@ -182,12 +243,12 @@ const PresenceMiniChip = styled.span<{ tone?: "ok" | "info" | "warn" }>`
 `;
 
 const Section = styled.section`
-  background: #fff;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  border-radius: 18px;
-  padding: 12px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
   @media (min-width: 900px) {
-    padding: 16px;
+    padding: 0;
   }
 `;
 
@@ -207,6 +268,17 @@ const Grid = styled.div`
   @media (min-width: 1100px) {
     grid-template-columns: repeat(5, minmax(0, 1fr));
   }
+`;
+
+const OfferGrid = styled.div`
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(min(230px, 100%), 1fr));
+`;
+
+const OfferSubsection = styled.section`
+  display: grid;
+  gap: 12px;
 `;
 
 const Card = styled.div`
@@ -302,6 +374,141 @@ const SmallBtn = styled.button<{ tone?: "primary" | "ghost" }>`
   font-weight: 900;
   width: 100%;
 `;
+const ProductCard = styled(Card)`
+  border-radius: 20px;
+  padding: 8px;
+  overflow: hidden;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfbfb 100%);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.045);
+`;
+
+const ProductInfo = styled.div`
+  padding: 2px 2px 0;
+  display: grid;
+  gap: 6px;
+`;
+
+const SellerMiniPill = styled.div`
+  max-width: 100%;
+  width: fit-content;
+  font-size: 0.7rem;
+  font-weight: 900;
+  border-radius: 999px;
+  padding: 5px 8px;
+  background: rgba(21, 255, 0, 0.1);
+  border: 1px solid rgba(21, 255, 0, 0.18);
+  color: #111;
+
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
+const IconActions = styled.div`
+  display: flex;
+  gap: 7px;
+  margin-top: 10px;
+  align-items: center;
+  justify-content: space-between;
+`;
+
+const IconActionBtn = styled.button<{ tone?: "primary" | "ghost" }>`
+  width: 38px;
+  height: 38px;
+  border-radius: 14px;
+  border: 1px solid
+    ${({ tone }) =>
+      tone === "primary" ? "rgba(34,197,94,0.45)" : "rgba(0,0,0,0.09)"};
+  background: ${({ tone }) =>
+    tone === "primary" ? "#15ff00ff" : "rgba(255,255,255,0.92)"};
+  color: #111;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+  transition: transform 0.14s ease, box-shadow 0.14s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
+  }
+
+  svg {
+    width: 17px;
+    height: 17px;
+    stroke-width: 2.4;
+  }
+`;
+
+const IconActionLink = styled.a<{ tone?: "primary" | "ghost" }>`
+  width: 38px;
+  height: 38px;
+  border-radius: 14px;
+  border: 1px solid
+    ${({ tone }) =>
+      tone === "primary" ? "rgba(34,197,94,0.45)" : "rgba(0,0,0,0.09)"};
+  background: ${({ tone }) =>
+    tone === "primary" ? "#15ff00ff" : "rgba(255,255,255,0.92)"};
+  color: #111;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+  text-decoration: none;
+
+  svg {
+    width: 17px;
+    height: 17px;
+    stroke-width: 2.4;
+  }
+`;
+
+const ModalDescription = styled.div`
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.035);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: rgba(0, 0, 0, 0.76);
+`;
+
+const ModalSellerBox = styled.div`
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(21, 255, 0, 0.08);
+  border: 1px solid rgba(21, 255, 0, 0.16);
+  display: grid;
+  gap: 4px;
+`;
+
+const ModalActionGrid = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 14px;
+
+  @media (max-width: 420px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+const ModalLinkBtn = styled.a`
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #15ff00ff;
+  color: #111;
+  font-weight: 950;
+  text-align: center;
+  text-decoration: none;
+`;
 
 const ProducirLayout = styled.div`
   display: grid;
@@ -378,18 +585,177 @@ const NavMoreBtn = styled.button`
     transform: translateY(1px);
   }
 `;
+const ProductDescription = styled.div`
+  font-size: 0.82rem;
+  line-height: 1.35;
+  opacity: 0.76;
+  margin-top: 7px;
 
-const NavMoreIcon = styled.span`
-  width: 32px;
-  height: 32px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+`;
+
+const SellerPill = styled.div`
+  margin-top: 8px;
+  font-size: 0.72rem;
+  border-radius: 999px;
+  padding: 6px 8px;
+  background: rgba(21, 255, 0, 0.1);
+  border: 1px solid rgba(21, 255, 0, 0.2);
+  color: #111;
+  width: fit-content;
+  max-width: 100%;
+
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
+const ConsultLink = styled.a`
+  border: 1px solid rgba(34, 197, 94, 0.35);
   border-radius: 12px;
+  padding: 10px 10px;
+  background: #15ff00ff;
+  color: #111;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-weight: 900;
+  width: 100%;
+  text-decoration: none;
+  text-align: center;
+`;
+
+const UtopyActionBtn = styled.button`
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 12px;
+  padding: 10px 10px;
+  background: #fff;
+  color: #111;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-weight: 900;
+  width: 100%;
+`;
+const NavMoreIcon = styled.span`
+  width: 34px;
+  height: 34px;
+  border-radius: 14px;
   background: #15ff00ff;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-`;
 
+  svg {
+    width: 18px;
+    height: 18px;
+  }
+`;const FloatingCircularDock = styled.div`
+  display: none;
+  position: fixed;
+  left: 50%;
+  bottom: calc(84px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 43;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+
+  @media (min-width: 900px) {
+    bottom: 24px;
+  }
+`;
+const CircularLoading = styled.div`
+  position:fixed;inset:0;z-index:1000;display:grid;place-items:center;align-content:center;gap:10px;background:#f6f8f7;color:#0f172a;
+  span{font-size:34px}b{font-size:13px}
+`;
+const LivingSpaceLayer = styled.div`
+  position: fixed; inset: calc(var(--market-header-height, 64px) + 8px) 0 calc(82px + env(safe-area-inset-bottom));
+  z-index: 45; overflow: hidden; border-radius: 24px;
+  animation: living-space-emerge 240ms ease-out both;
+  @keyframes living-space-emerge { from { opacity: 0; transform: translateY(18px) scale(.985); } to { opacity: 1; transform: none; } }
+  @media(min-width:900px){inset:calc(var(--market-header-height, 64px) + 8px) 12px 12px}
+  @media(prefers-reduced-motion:reduce){animation:none}
+  > div { height:100% !important; min-height:0 !important; }
+`;
+const CircularMapButton = styled.button<{ active?: boolean }>`
+  pointer-events: auto;
+  border: 1px solid
+    ${({ active }) =>
+      active ? "rgba(21,255,0,0.65)" : "rgba(255,255,255,0.42)"};
+
+  border-radius: 999px;
+  padding: 10px 18px 10px 10px;
+
+  background:
+    radial-gradient(circle at 18% 22%, rgba(21,255,0,0.34), transparent 34%),
+    linear-gradient(135deg, rgba(15,23,42,0.86), rgba(15,23,42,0.66));
+
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-weight: 950;
+  font-size: 0.86rem;
+
+  box-shadow:
+    0 20px 60px rgba(15, 23, 42, 0.34),
+    0 0 0 1px rgba(255,255,255,0.08) inset;
+
+  backdrop-filter: blur(20px);
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.16s ease,
+    border-color 0.16s ease;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 26px 72px rgba(15, 23, 42, 0.42),
+      0 0 28px rgba(21,255,0,0.16);
+  }
+
+  &:active {
+    transform: translateY(0) scale(0.98);
+  }
+
+  svg {
+    width: 18px;
+    height: 18px;
+    stroke-width: 2.5;
+  }
+
+  span {
+    white-space: nowrap;
+  }
+`;
+const CircularIconOrb = styled.span<{ active?: boolean }>`
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  background: ${({ active }) =>
+    active
+      ? "linear-gradient(180deg, #15ff00 0%, #9dff7a 100%)"
+      : "rgba(255,255,255,0.16)"};
+
+  color: ${({ active }) => (active ? "#071007" : "#fff")};
+
+  box-shadow: ${({ active }) =>
+    active ? "0 0 26px rgba(21,255,0,0.32)" : "none"};
+`;
 const NavMoreText = styled.span`
   display: grid;
   gap: 1px;
@@ -406,13 +772,19 @@ const NavMoreSub = styled.span`
   opacity: 0.65;
   font-weight: 800;
 `;
-
 const NavHoldHint = styled.span`
   position: absolute;
-  right: 8px;
-  top: 5px;
-  font-size: 10px;
-  opacity: 0.55;
+  right: 7px;
+  top: 7px;
+  width: 13px;
+  height: 13px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.12);
+  color: #0f172a;
+  font-size: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   pointer-events: none;
 `;
 const ProduceSide = styled.div`
@@ -498,21 +870,23 @@ type Tab =
   | "ofertas"
   | "mis_pedidos"
   | "producir"
-  | "circular"; 
+  | "crear"
+  | "circular";
 
 const TopBar = styled.div`
   width: 100%;
   position: sticky;
   top: 0;
-  z-index: 20;
-  background: rgba(250, 250, 250, 0.92);
-  backdrop-filter: blur(10px);
+  z-index: 90;
+  background: rgba(255,255,255,.9);
+  backdrop-filter: blur(18px);
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
 `;
 
 const TopInner = styled.div`
   width: 100%;
-  max-width: 1100px;
+  max-width: 1280px;
+  margin: 0 auto;
   padding: 10px 12px;
   display: flex;
   align-items: center;
@@ -523,16 +897,36 @@ const TopInner = styled.div`
   }
 `;
 
-const Brand = styled.div`
+const Brand = styled.button`
+  border:0;background:transparent;text-align:left;cursor:pointer;
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
   min-width: 0;
+  padding-left: 39px;
+  &::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 50%;
+    width: 29px;
+    height: 29px;
+    border: 5px solid #cba66f;
+    border-left-color: transparent;
+    border-bottom-color: #ece6dc;
+    border-radius: 50%;
+    transform: translateY(-50%) rotate(-30deg);
+  }
+`;
+
+const BrandEyebrow = styled.div`
+  font-size:8px;font-weight:950;letter-spacing:.18em;color:#64748b;line-height:1;text-transform:uppercase;
 `;
 
 const BrandTitle = styled.div`
   font-weight: 950;
-  font-size: 0.95rem;
+  font-size: 1.15rem;
   line-height: 1;
   white-space: nowrap;
   overflow: hidden;
@@ -552,6 +946,25 @@ const RightTools = styled.div`
   display: flex;
   gap: 8px;
   align-items: center;
+  @media(max-width:500px){gap:3px}
+`;
+const HeaderMore = styled.details`
+  position:relative;
+  >summary{list-style:none;display:grid;place-items:center;width:40px;height:40px;border-radius:50%;cursor:pointer;font-size:22px;color:#575563;}
+  >summary::-webkit-details-marker{display:none}
+  >div{position:absolute;right:0;top:48px;z-index:110;display:grid;gap:12px;min-width:230px;padding:18px;background:#fff;border:1px solid #eeedf3;border-radius:22px;box-shadow:0 18px 60px #20202d26;}
+  >div>label{display:grid;gap:6px;font-size:12px;color:#777482}
+`;
+const HeaderSearch = styled.button`
+  min-width:0;flex:1;max-width:430px;display:flex;align-items:center;gap:10px;border:1px solid #eeedf3;border-radius:999px;background:#f5f4f8;padding:11px 16px;text-align:left;color:#86828f;font-size:12px;cursor:pointer;svg{width:17px;height:17px;flex:none}
+  @media(max-width:580px){span{display:none}flex:none;width:42px;height:42px;padding:12px;}
+`;
+const HeaderIndicators = styled.div`
+  display:flex;gap:5px;align-items:center;
+  @media(max-width:900px){display:none;}
+`;
+const HeaderIndicator = styled.span`
+  display:inline-flex;align-items:center;gap:5px;border:1px solid rgba(15,23,42,.08);border-radius:999px;padding:6px 8px;background:#fff;color:#475569;font-size:10px;font-weight:850;
 `;
 const MiniSelect = styled.select`
   border: 1px solid rgba(0, 0, 0, 0.12);
@@ -561,6 +974,8 @@ const MiniSelect = styled.select`
   color: #111;
   font-size: 0.85rem;
   max-width: 160px;
+
+  @media(max-width:900px){display:none;}
 
   &:focus {
     outline: none;
@@ -599,7 +1014,9 @@ const PillBtn = styled.button`
   color: #111;
   cursor: pointer;
   font-weight: 950;
-  font-size: 0.85rem;
+  width:44px;height:44px;padding:0;display:grid;place-items:center;
+  @media(max-width:500px){width:38px;height:38px}
+  svg{width:20px;height:20px;}
 
   &:active {
     transform: translateY(1px);
@@ -617,25 +1034,33 @@ const StatusDot = styled.span<{ s: "live" | "fallback" | "idle" }>`
 
 const DesktopTabsRow = styled.div`
   display: none;
-  @media (min-width: 900px) {
+  @media (min-width: 1100px) {
+    position: relative;
+    width:fit-content;
+    max-width:100%;
+    margin:0 auto 10px;
     display: flex;
     gap: 8px;
     align-items: center;
     justify-content: center;
-    padding: 10px 0 0;
+    padding: 4px;
+    border-radius: 999px;
+    background: #f5f3f0;
   }
 `;const IconGhostBtn = styled.button<{ active?: boolean }>`
   border: none;
   background: ${({ active }) => (active ? "rgba(34, 197, 94, 0.12)" : "transparent")};
   color: ${({ active }) => (active ? "#16a34a" : "#111")};
-  width: 48px;
-  height: 48px;
+  width: 42px;
+  height: 42px;
+  @media(max-width:500px){width:36px;height:36px}
   border-radius: 999px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   position: relative;
+  @media(max-width:900px){&.market-top-map{display:none;}}
   transition: background 0.18s ease, transform 0.12s ease, color 0.18s ease;
 
   &:hover {
@@ -647,22 +1072,51 @@ const DesktopTabsRow = styled.div`
     transform: translateY(1px);
   }
 
+  &.frequency-button {
+    color: #4f3d71;
+    font: 900 24px/1 system-ui, sans-serif;
+  }
+
+  &.frequency-button .frequency-glyph {
+    position: relative;
+    z-index: 1;
+    transform: translateY(-1px);
+  }
+
+  &.frequency-active {
+    background: rgba(222, 213, 242, .42);
+  }
+
+  &.frequency-silent {
+    opacity: .46;
+  }
+
   &::after {
     content: "";
     position: absolute;
-    right: 8px;
-    top: 8px;
-    width: 10px;
-    height: 10px;
+    inset: 3px;
     border-radius: 999px;
-    background: ${({ active }) => (active ? "#16a34a" : "transparent")};
-    box-shadow: ${({ active }) =>
-      active ? "0 0 0 2px rgba(255,255,255,0.95)" : "none"};
+    border: 1px solid transparent;
+    pointer-events: none;
+  }
+
+  &.frequency-active::after {
+    border-color: rgba(111, 82, 164, .16);
+    box-shadow: 0 0 18px rgba(111, 82, 164, .1);
+  }
+
+  &.frequency-pulse::after {
+    animation: frequency-wave .9s ease-out 1;
+  }
+
+  @keyframes frequency-wave {
+    from { inset: 4px; border-color: rgba(111,82,164,.34); opacity: 1; }
+    to { inset: -10px; border-color: rgba(111,82,164,0); opacity: 0; }
   }
 
   svg {
-    width: 24px;
-    height: 24px;
+    width: 21px;
+    height: 21px;
     stroke-width: 2.4;
   }
 `;
@@ -676,16 +1130,14 @@ const DesktopTabBtn = styled.button<{ active?: boolean }>`
   font-weight: 950;
   font-size: 0.85rem;
 `;
-
 const BottomNav = styled.div`
   position: fixed;
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 40;
-  background: rgba(255, 255, 255, 0.96);
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
-  padding-bottom: env(safe-area-inset-bottom);
+  z-index: 90;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  pointer-events: none;
 
   @media (min-width: 900px) {
     display: none;
@@ -693,39 +1145,73 @@ const BottomNav = styled.div`
 `;
 
 const BottomInner = styled.div`
+  width: min(520px, 100%);
+  margin: 0 auto;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 6px;
-  padding: 8px 10px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 2px;
+  padding: 8px 6px;
+  border-radius: 25px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: 0 12px 35px rgba(15, 23, 42, 0.10);
+  backdrop-filter: blur(18px);
+  pointer-events: auto;
 `;
 
 const NavBtn = styled.button<{ active?: boolean }>`
-  border: none;
-  background: ${({ active }) =>
-    active ? "rgba(34,197,94,0.12)" : "transparent"};
-  border-radius: 14px;
-  padding: 10px 8px;
+  border: 0;
+  background: transparent;
+  color: #0f172a;
+  border-radius: 18px;
+  min-width: 0;
+  height: 56px;
+  justify-self: center;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   font-weight: 950;
-  font-size: 0.72rem;
+  font-size: 9px;
+  gap: 2px;
+  opacity: ${({ active }) => active ? 1 : .58};
+  box-shadow: none;
+  transition:
+    transform 0.14s ease,
+    box-shadow 0.14s ease,
+    background 0.14s ease;
+
+  &:active {
+    transform: translateY(1px) scale(0.98);
+  }
+
+  svg {
+    width: 21px;
+    height: 21px;
+    stroke-width: 2.4;
+  }
+  &.primary-create > div {
+    width: 42px;
+    height: 42px;
+    margin-top: -18px;
+    border-radius: 50%;
+    color: white;
+    background: linear-gradient(145deg,#d9b16f,#a97a38);
+    box-shadow: 0 12px 28px rgba(169,122,56,.3);
+  }
 `;
 
 const NavIcon = styled.div`
   width: 26px;
   height: 26px;
-  border-radius: 10px;
-  background: rgba(0, 0, 0, 0.05);
+  border-radius: 999px;
+  background: transparent;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
 `;
-
 // ✅ Producir: solo icono en mobile
 const ProducirLabel = styled.div`
   display: none; /* oculto por default (mobile) */
@@ -786,6 +1272,172 @@ function safeJsonParse(x: any): any | null {
 }
 function safeStr(x: any) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+function displayPrice(v: any) {
+  const n = Number(v || 0);
+  if (!Number.isFinite(n) || n <= 0) return "Consultar";
+  return `₲ ${n.toLocaleString("es-PY")}`;
+}
+
+function getProductDescription(item: any) {
+  return (
+    item?.attrs?.descripcion ||
+    item?.meta?.description ||
+    "Producto disponible. Consultar medidas, precio y disponibilidad."
+  );
+}
+
+function getProductSellerName(item: any, allLive: any[] = []) {
+  return resolveLiveSeller(item, allLive);
+}
+function getProductImageUrl(item: any, allLive: any[] = []) {
+  return resolveLiveImage(item, allLive);
+}
+
+function toPublicImageUrl(src: string) {
+  if (!src) return "";
+  if (src.startsWith("data:")) return "";
+  if (src.startsWith("blob:")) return "";
+  if (src.startsWith("http://") || src.startsWith("https://")) return src;
+
+  try {
+    return new URL(src, window.location.origin).toString();
+  } catch {
+    return "";
+  }
+}
+function getProductSellerId(item: any) {
+  return (
+    item?.attrs?.sellerId ||
+    item?.attrs?.storeId ||
+    item?.meta?.storeId ||
+    item?.meta?.seller?.id ||
+    "seller"
+  );
+}
+function isMOFabricableProduct(item: any) {
+  const traits = Array.isArray(item?.traits) ? item.traits.map(String) : [];
+  const sourceNode = String(
+    item?.attrs?.source?.node ||
+      item?.attrs?.author?.nodeId ||
+      item?.meta?.originNode ||
+      item?.meta?.source ||
+      "",
+  ).toLowerCase();
+  const actions = Array.isArray(item?.attrs?.symbioticActions)
+    ? item.attrs.symbioticActions
+    : [];
+
+  return (
+    traits.includes("mo:product") ||
+    sourceNode === "mo" ||
+    sourceNode.includes("mo:creator") ||
+    actions.some((action: any) => action?.id === "fabrication.request")
+  );
+}function buildWhatsappConsultUrl(item: any) {
+  const nombre =
+    item?.attrs?.nombre ||
+    item?.nombre ||
+    item?.meta?.name ||
+    "producto";
+
+  const seller = getProductSellerName(item);
+
+  const whatsapp =
+    item?.attrs?.whatsapp ||
+    item?.meta?.contact?.whatsapp ||
+    item?.meta?.seller?.whatsapp ||
+    "";
+
+  if (!whatsapp) return "";
+
+  let cleanPhone = String(whatsapp).replace(/\D/g, "");
+
+  if (cleanPhone.startsWith("0")) {
+    cleanPhone = `595${cleanPhone.slice(1)}`;
+  }
+
+  if (cleanPhone.length === 9 && cleanPhone.startsWith("9")) {
+    cleanPhone = `595${cleanPhone}`;
+  }
+
+  if (cleanPhone.startsWith("5950")) {
+    cleanPhone = `595${cleanPhone.slice(4)}`;
+  }
+
+  const productUrl = absolutePublicUrl(
+    productPath(item)
+  );
+
+  const text = encodeURIComponent(
+    `Hola ${seller}, vi este producto en UTOPY Market y quiero consultar precio y disponibilidad:\n\n${nombre}\n\nFicha del producto:\n${productUrl}`
+  );
+
+  return `https://wa.me/${cleanPhone}?text=${text}`;
+}
+function buildProductJsonLd(product: any) {
+  const id = String(product?.id || "");
+
+  const name =
+    product?.nombre ||
+    product?.attrs?.nombre ||
+    product?.meta?.name ||
+    "Producto UTOPY Market";
+
+  const description =
+    product?.attrs?.descripcion ||
+    product?.meta?.description ||
+    "Producto disponible en UTOPY Market.";
+
+  const rawImage = getProductImageUrl(product) || product?.imagen || "";
+  const image = rawImage ? toPublicImageUrl(rawImage) || rawImage : "";
+
+  const sellerName = getProductSellerName(product);
+
+  const price = Number(product?.precio || product?.attrs?.precio || 0);
+  const stock = Number(product?.stock ?? product?.attrs?.stock ?? 1);
+
+  const url =
+    typeof window !== "undefined"
+      ? new URL(productPath(product), window.location.origin).toString()
+      : `https://market.utopy.live${productPath(product)}`;
+
+  const jsonLd: any = {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name,
+    description,
+    image: image ? [image] : undefined,
+    brand: {
+      "@type": "Brand",
+      name: sellerName,
+    },
+    seller: {
+      "@type": "Organization",
+      name: sellerName,
+    },
+    url,
+    offers: {
+      "@type": "Offer",
+      url,
+      priceCurrency: "PYG",
+      availability:
+        stock > 0
+          ? "https://schema.org/InStock"
+          : "https://schema.org/OutOfStock",
+      itemCondition: "https://schema.org/NewCondition",
+      seller: {
+        "@type": "Organization",
+        name: sellerName,
+      },
+    },
+  };
+
+  if (price > 0) {
+    jsonLd.offers.price = String(price);
+  }
+
+  return jsonLd;
 }
 function parseTs(d: any): number {
   const t = Date.parse(d?.meta?.ts || d?.attrs?.ts || "");
@@ -1010,8 +1662,8 @@ function settleOfferQuantity(offer: any, boughtQty: number) {
     },
   };
 }
-function productPath(id: any) {
-  return `/producto/${encodeURIComponent(String(id || ""))}`;
+function productPath(product: any, siblings: any[] = []) {
+  return productPathFor(product, siblings);
 }
 
 function offerPath(id: any) {
@@ -1072,19 +1724,6 @@ function closeMandatesForTarget(
 }
 
 
-
-function notifyNewOffer(o: any) {
-  if (typeof window === "undefined" || !("Notification" in window)) return;
-  if (Notification.permission !== "granted") return;
-
-  const ns = getOfferNs(o);
-  const title = getOfferTitle(o);
-
-  new Notification("Nueva oferta viva", {
-    body: `${title} · ${o?.cantidad ?? "?"}u · ${o?.precio ?? "s/precio"} · ns: ${ns}`,
-    icon: getOfferImage(o) || "/placeholder.png",
-  });
-}
 
 function looksLikeDV(raw: any): boolean {
   if (!raw || typeof raw !== "object") return false;
@@ -1224,6 +1863,7 @@ function isMarketRelevantRaw(raw: any): boolean {
 
   return (
     kind.startsWith("mt.") ||
+    kind.startsWith("mt:") ||
     kind.startsWith("market.") ||
     kind.startsWith("trade.") ||
     kind.startsWith("payment.") ||
@@ -1241,197 +1881,128 @@ function isMarketRelevantRaw(raw: any): boolean {
 // MT client (seed snapshot + micelio sse)
 // =========================================================
 export function useMtClient() {
-  const [products, setProducts] = useState<MtProduct[]>([]);
-  const [offers, setOffers] = useState<MtOffer[]>([]);
-  const [cajeros, setCajeros] = useState<MtCajero[]>([]);
-  const [status, setStatus] = useState<"live" | "fallback" | "idle">("idle");
-const snapshotLoadedRef = useRef(false);
-  useEffect(() => {
-   const recompute = (all: DatoVivo[]) => {
-  const cleanAll = (all || []).filter((dv: any) => !isExplodedMoPackDV(dv));
-
-  const prods = adaptDatosToMtProducts(cleanAll);
-  const offs = adaptDatosToMtOffers(cleanAll);
-  const cajs = adaptDatosToMtCajeros(cleanAll);
-
-  setProducts(prods);
-  setOffers(offs);
-  setCajeros(cajs);
-
-  if (prods.length || offs.length || cajs.length) setStatus("live");
-};
-
-       let recomputeTimer: number | null = null;
-let latestAll: DatoVivo[] = [];
-
-const scheduleRecompute = (all: DatoVivo[]) => {
-  latestAll = Array.isArray(all) ? all : [];
-
-  if (recomputeTimer != null) return;
-
-  recomputeTimer = window.setTimeout(() => {
-    recomputeTimer = null;
-    if (!alive) return;
-    recompute(latestAll);
-  }, 80);
-};
-
-const unsubscribe = mtLiveSubscribe(scheduleRecompute);
-    let alive = true;
-    async function yieldToBrowser() {
-  await new Promise<void>((resolve) => {
-    const w = globalThis as any;
-
-    if (typeof w.requestIdleCallback === "function") {
-      w.requestIdleCallback(() => resolve(), { timeout: 500 });
-      return;
-    }
-
-    if (typeof w.requestAnimationFrame === "function") {
-      w.requestAnimationFrame(() => resolve());
-      return;
-    }
-
-    setTimeout(() => resolve(), 0);
-  });
-}
-
-async function loadMicelioSnapshot() {
-  if (snapshotLoadedRef.current) return;
-  snapshotLoadedRef.current = true;
-
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 5500);
-
-  try {
-    const res = await fetch(`${MICELIO_HTTP}/dv`, {
-      headers: { Accept: "application/json" },
-      signal: controller.signal,
-    });
-
-    if (!res.ok) {
-      throw new Error(`Micelio HTTP ${res.status}`);
-    }
-
-    const json = await res.json();
-    const rawItems = getMicelioItems(json);
-
-    const pending: DatoVivo[] = [];
-    const seen = new Set<string>();
-
-    for (const it of rawItems.slice(0, 3000)) {
-      const raw = extractDVFromAnyFrame(it) || it;
-      if (!isMarketRelevantRaw(raw)) continue;
-
-     const dv = asDatoVivo(raw);
-if (!dv) continue;
-
-if (isExplodedMoPackDV(raw) || isExplodedMoPackDV(dv)) continue;
-
-const key = `${dv.kind}:${dv.id}:${dv.meta?.ts || dv.attrs?.status || ""}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-
-      pending.push(dv);
-    }
-
-    const chunkSize = 80;
-
-    for (let i = 0; i < pending.length; i += chunkSize) {
-      const chunk = pending.slice(i, i + chunkSize);
-
-      for (const dv of chunk) {
-        mtLiveUpsert(dv);
-      }
-
-      await yieldToBrowser();
-    }
-
-    console.log("[MT web] Micelio snapshot:", {
-      total: rawItems.length,
-      accepted: pending.length,
-    });
-  } catch (err) {
-    console.warn("[MT web] Snapshot Micelio omitido:", err);
-  } finally {
-    window.clearTimeout(timeout);
+  const initialRef = useRef<{
+    products: MtProduct[];
+    offers: MtOffer[];
+    cajeros: MtCajero[];
+    allLive: DatoVivo[];
+  } | null>(null);
+  if (!initialRef.current) {
+    const local = mtLiveSnapshot().filter((dv: any) => !isExplodedMoPackDV(dv));
+    initialRef.current = {
+      allLive: local,
+      products: adaptDatosToMtProducts(local).map((product) => ({
+        ...product,
+        imagen: getProductImageUrl(product, local),
+        sellerName: getProductSellerName(product, local),
+      })),
+      offers: adaptDatosToMtOffers(local),
+      cajeros: adaptDatosToMtCajeros(local),
+    };
   }
-}
-    window.setTimeout(() => {
-      if (alive) loadMicelioSnapshot();
-    }, 250);
+  const initial = initialRef.current!;
+  const [products, setProducts] = useState<MtProduct[]>(initial.products);
+  const [offers, setOffers] = useState<MtOffer[]>(initial.offers);
+  const [cajeros, setCajeros] = useState<MtCajero[]>(initial.cajeros);
+  const [status, setStatus] = useState<"live" | "fallback" | "idle">(initial.products.length || initial.offers.length ? "live" : "idle");
+  const [allLive, setAllLive] = useState<DatoVivo[]>(initial.allLive);
+  const [syncState, setSyncState] = useState<"local" | "syncing" | "live" | "offline" | "partial">(() => navigator.onLine ? "syncing" : "offline");
 
+  useEffect(() => {
+    let alive = true;
+    let recomputeTimer: number | null = null;
+    let latestAll: DatoVivo[] = [];
+    let settleTimer: number | null = null;
+    const sourceStates = new Map<string, string>();
 
-    // A) Snapshot SEED
-    const ws = new WebSocket(WS_URL);
-    ws.onopen = () => {
-      ws.send(
-        JSON.stringify({
-          kind: "dato.query",
-          id: "mt:web:snapshot",
-          where: {},
-          limit: 1200,
-          auth: "utopy-resonancia",
-        }),
-      );
+    // Runtime compartido: Market y Falcon adquieren la misma instancia.
+    const releaseRuntime = acquireLiveSymbiosis();
+
+    const recompute = (all: DatoVivo[]) => {
+      const cleanAll = (all || []).filter((dv: any) => !isExplodedMoPackDV(dv));
+      const prods = adaptDatosToMtProducts(cleanAll).map((product) => ({
+        ...product,
+        imagen: getProductImageUrl(product, cleanAll),
+        sellerName: getProductSellerName(product, cleanAll),
+      }));
+      const offs = adaptDatosToMtOffers(cleanAll);
+      const cajs = adaptDatosToMtCajeros(cleanAll);
+
+      if (!alive) return;
+      // Public projections are non-urgent; keep typing and navigation responsive.
+      React.startTransition(() => {
+        setAllLive(cleanAll);
+        setProducts(prods);
+        setOffers(offs);
+        setCajeros(cajs);
+        setStatus(prods.length || offs.length || cajs.length ? "live" : "idle");
+      });
     };
 
-    ws.onmessage = (ev) => {
-      const msg = safeJsonParse(ev.data);
-      if (!msg) return;
-      if (msg?.ok && Array.isArray(msg.items)) {
-        for (const it of msg.items) {
-          const raw = extractDVFromAnyFrame(it) || it;
-          const dv = asDatoVivo(raw);
-          if (dv) mtLiveUpsert(dv);
-        }
+    const scheduleRecompute = (all: DatoVivo[]) => {
+      latestAll = Array.isArray(all) ? all : [];
+      if (recomputeTimer != null) return;
+      recomputeTimer = window.setTimeout(() => {
+        recomputeTimer = null;
+        recompute(latestAll);
+      }, 60);
+    };
+
+    const unsubscribe = mtLiveSubscribe(scheduleRecompute);
+
+    const onSourceStatus = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail;
+      if (!alive) return;
+      if (detail?.sourceId) sourceStates.set(String(detail.sourceId), String(detail.state || ""));
+      if (detail?.state === "loading" || detail?.state === "discovering") {
+        setSyncState("syncing");
+      } else if (detail?.state === "error" || detail?.state === "cached") {
+        setSyncState(latestAll.length ? "partial" : "offline");
+      } else if (detail?.state === "live") {
+        if (settleTimer != null) window.clearTimeout(settleTimer);
+        settleTimer = window.setTimeout(() => {
+          const partial = Array.from(sourceStates.values()).some((state) => state === "error" || state === "cached");
+          setSyncState(partial ? "partial" : "live");
+        }, 900);
+      }
+      if (detail?.state === "error" && latestAll.length === 0) {
+        setStatus("fallback");
+      } else if (detail?.state === "live") {
+        setStatus("live");
       }
     };
 
-    ws.onerror = (e) => console.warn("[MT web] Seed WS error:", e);
-    ws.onclose = () => console.warn("[MT web] Seed WS closed");
+    const onOffline = () => setSyncState("offline");
+    const onOnline = () => setSyncState("syncing");
 
-    // B) Live MICELIO SSE
-    const es = new EventSource(`${MICELIO_HTTP}/events`);
-    const onAny = (ev: MessageEvent) => {
-      const msg = safeJsonParse(ev.data);
-      if (!msg) return;
-      const raw = extractDVFromAnyFrame(msg) || msg;
-      const dv = asDatoVivo(raw);
-      if (!dv) return;
-      mtLiveUpsert(dv);
-    };
-
-    es.addEventListener("message", onAny);
-    es.addEventListener("intent", onAny);
-    es.addEventListener("dv", onAny);
-    es.addEventListener("dato", onAny);
-
-    es.onerror = (err) => {
-      console.error("[MT web] Micelio SSE error:", err);
-      if (alive) setStatus("fallback");
-    };
+    window.addEventListener(
+      "utopy:catalog-source:status",
+      onSourceStatus as EventListener,
+    );
+    window.addEventListener("offline", onOffline);
+    window.addEventListener("online", onOnline);
 
     return () => {
-  alive = false;
-
-  if (recomputeTimer != null) {
-    window.clearTimeout(recomputeTimer);
-  }
-
-  try {
-    es.close();
-  } catch {}
-
-  try {
-    ws.close();
-  } catch {}
-
-  unsubscribe();
-};
+      alive = false;
+      if (recomputeTimer != null) window.clearTimeout(recomputeTimer);
+      if (settleTimer != null) window.clearTimeout(settleTimer);
+      unsubscribe();
+      releaseRuntime();
+      window.removeEventListener(
+        "utopy:catalog-source:status",
+        onSourceStatus as EventListener,
+      );
+      window.removeEventListener("offline", onOffline);
+      window.removeEventListener("online", onOnline);
+    };
   }, []);
 
-  return { products, offers, cajeros, status };
+  const refresh = () => {
+    setSyncState(navigator.onLine ? "syncing" : "offline");
+    window.dispatchEvent(new Event("utopy:catalog-sources:refresh"));
+  };
+
+  return { products, offers, cajeros, status, allLive, syncState, refresh, hadLocalState: initial.allLive.length > 0 };
 }
 
 // =========================================================
@@ -1485,6 +2056,13 @@ function ArModal({
   product: MtProduct | null;
   onClose: () => void;
 }) {
+  const [viewerReady, setViewerReady] = useState(false);
+  useEffect(() => {
+    if (!open || !product) return;
+    let active = true;
+    void import("@google/model-viewer").then(() => { if (active) setViewerReady(true); });
+    return () => { active = false; };
+  }, [open, product]);
   if (!open || !product) return null;
 
   const ar = product.meta?.ar as any;
@@ -1513,8 +2091,7 @@ function ArModal({
             background: "#000",
           }}
         >
-          {/* @ts-ignore */}
-          <model-viewer
+          {viewerReady ? <>{/* @ts-ignore */}<model-viewer
             src={modelUrl}
             poster={poster}
             ar
@@ -1525,7 +2102,7 @@ function ArModal({
               width: "100%",
               height: "min(62vh, 520px)",
             }}
-          />
+          /></> : <div style={{ height: "min(62vh, 520px)", display: "grid", placeItems: "center", color: "white", fontWeight: 800 }}>Preparando vista 3D…</div>}
         </div>
 
         <Subtle style={{ marginTop: 8 }}>
@@ -1556,6 +2133,8 @@ function PublicProductOfferModal({
   product,
   offer,
   products,
+  onConsultProduct,
+  onFabricateProduct,
   onClose,
   onCheckoutProduct,
   onCheckoutOffer,
@@ -1564,6 +2143,8 @@ function PublicProductOfferModal({
 }: {
   product: MtProduct | null;
   offer: MtOffer | null;
+  onConsultProduct: (p: MtProduct) => void;
+  onFabricateProduct: (p: MtProduct) => void;
   products: MtProduct[];
   onClose: () => void;
   onCheckoutProduct: (p: MtProduct) => void;
@@ -1581,8 +2162,8 @@ function PublicProductOfferModal({
     : product?.nombre || "Producto";
 
   const img = offer
-    ? getOfferImage(offer) || linkedProduct?.imagen || "/placeholder.png"
-    : product?.imagen || "/placeholder.png";
+    ? getOfferImage(offer) || linkedProduct?.imagen || ""
+    : product?.imagen || "";
 
   const price = offer
     ? offer.precio
@@ -1591,9 +2172,59 @@ function PublicProductOfferModal({
   const ns = offer
     ? getOfferNs(offer)
     : product?.meta?.ns || "mt:market";
+    const productForInfo = product || linkedProduct || null;
+const description = productForInfo ? getProductDescription(productForInfo) : "";
+const sellerName = productForInfo ? getProductSellerName(productForInfo) : "Nodo vendedor";
+const whatsappUrl = productForInfo ? buildWhatsappConsultUrl(productForInfo) : "";
+
+  const sharedSource = offer
+    ? {
+        ...(linkedProduct || {}),
+        ...offer,
+        attrs: {
+          ...((linkedProduct as any)?.attrs || {}),
+          ...((offer as any)?.attrs || {}),
+          price: offer.precio,
+          sellerName,
+        },
+      }
+    : product;
+  const sharedView = projectUniversalProduct(sharedSource, {
+    title,
+    seller: sellerName,
+    description,
+    image: img,
+    finalPrice: Number.isFinite(Number(price)) && Number(price) > 0 ? Number(price) : null,
+    publicPath: productForInfo
+      ? (typeof window !== "undefined" && window.location.pathname.startsWith("/producto/")
+          ? window.location.pathname
+          : productPath(productForInfo, products))
+      : "",
+  });
 
   return (
     <Portal>
+      <UniversalProductDialog
+        open
+        product={sharedView}
+        onClose={onClose}
+        onBuy={() => offer ? onCheckoutOffer(offer) : product ? onCheckoutProduct(product) : undefined}
+        onConsult={() => offer ? onConsultOffer(offer) : product ? onConsultProduct(product) : undefined}
+      />
+    </Portal>
+  );
+
+/* Legacy public sheet retained only as source history; the universal sheet above is the live surface.
+  return (
+    <Portal>
+      {productJsonLd ? (
+  <script
+    type="application/ld+json"
+    dangerouslySetInnerHTML={{
+      __html: JSON.stringify(productJsonLd),
+    }}
+  />
+) : null}
       <PickerBackdrop onClick={onClose}>
         <CheckoutModalBox
           onClick={(e) => e.stopPropagation()}
@@ -1629,14 +2260,26 @@ function PublicProductOfferModal({
                 marginTop: 12,
                 background: "#f2f2f2",
               }}
+              onError={(event) => { event.currentTarget.style.display = "none"; }}
             />
-          ) : null}
+          ) : <div style={{ marginTop: 12, aspectRatio: "4 / 3", display: "grid", placeItems: "center", borderRadius: 16, background: "#f1f5f9", color: "#64748b", fontWeight: 800 }}>📦 Sin imagen</div>}
 
           <div style={{ marginTop: 12, display: "grid", gap: 6 }}>
             <div style={{ fontWeight: 950 }}>
               {price ? `${price}` : "Precio a consultar"}
             </div>
+{productForInfo ? (
+  <>
+    <ModalSellerBox>
+      <div style={{ fontSize: "0.78rem", opacity: 0.68, fontWeight: 900 }}>
+        Nodo vendedor
+      </div>
+      <div style={{ fontWeight: 950 }}>{sellerName}</div>
+    </ModalSellerBox>
 
+    <ModalDescription>{description}</ModalDescription>
+  </>
+) : null}
             {offer ? (
               <Subtle>
                 Oferta: {offer.tipo?.toUpperCase?.() || "OFERTA"} ·{" "}
@@ -1660,6 +2303,23 @@ function PublicProductOfferModal({
             <SmallBtn tone="ghost" onClick={onShare}>
               Compartir
             </SmallBtn>
+             {product && whatsappUrl ? (
+    <ModalLinkBtn href={whatsappUrl} target="_blank" rel="noreferrer">
+      Consultar directo
+    </ModalLinkBtn>
+  ) : null}
+
+  {product ? (
+    <SmallBtn tone="ghost" onClick={() => onConsultProduct(product)}>
+      💬 Consultar por UTOPY
+    </SmallBtn>
+  ) : null}
+
+  {product && isMOFabricableProduct(product) ? (
+    <SmallBtn tone="ghost" onClick={() => onFabricateProduct(product)}>
+      🏭 Fabricar o adaptar
+    </SmallBtn>
+  ) : null}
 
             {offer ? (
               <SmallBtn tone="ghost" onClick={() => onConsultOffer(offer)}>
@@ -1681,6 +2341,7 @@ function PublicProductOfferModal({
       </PickerBackdrop>
     </Portal>
   );
+*/
 }
 function CajeroPickerModal({
   open,
@@ -1748,27 +2409,70 @@ function CajeroPickerModal({
 // =========================================================
 // Vista principal
 // =========================================================
-export default function MercadoLocal() {
+type MercadoLocalProps = {
+  kioskMode?: boolean;
+  territoryMode?: boolean;
+};
+
+export default function MercadoLocal({ kioskMode = false, territoryMode=false }: MercadoLocalProps) {
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [headerHeight, setHeaderHeight] = useState(64);
+  useLayoutEffect(() => {
+    const header = headerRef.current;
+    if (!header) return;
+    const measure = () => setHeaderHeight(Math.ceil(header.getBoundingClientRect().height));
+    measure();
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    observer?.observe(header);
+    window.addEventListener("resize", measure);
+    return () => { observer?.disconnect(); window.removeEventListener("resize", measure); };
+  }, []);
+  const location = useLocation();
   const [tab, setTab] = useState<Tab>("mercado");
+  const [territorialMode, setTerritorialMode] = useState<TerritorialMode>("for_me");
+  const [offerView, setOfferView] = useState<"all" | "sell" | "buy">("all");
+  const [circularInitialView, setCircularInitialView] =
+    useState<CircularWorldView>("mapa");
+  const previousMarketTabRef =
+    useRef<Exclude<Tab, "circular">>("mercado");
+  const circularReturnToRef = useRef<string | null>(null);
+  const surfaceTab = tab === "circular" ? previousMarketTabRef.current : tab;
   const [cartOpen, setCartOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [profileQuickOpen, setProfileQuickOpen] = useState(false);
+  const [profileInitialSpace,setProfileInitialSpace]=useState<'home'|'value'>('home');
+  const [conversationsOpen, setConversationsOpen] = useState(false);
+  useEffect(() => {
+    const query = new URLSearchParams(location.search);
+    if (query.get("conversations") === "1" || query.get("conversaciones") === "1") setConversationsOpen(true);
+  }, [location.search]);
   const [cajeroPickerOpen, setCajeroPickerOpen] = useState(false);
-const [allDv, setAllDv] = useState<DatoVivo[]>([]);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [checkoutProd, setCheckoutProd] = useState<MtProduct | null>(null);
 const [checkoutOffer, setCheckoutOffer] = useState<MtOffer | null>(null);
+  const [circularPurchaseContext, setCircularPurchaseContext] = useState<any | null>(() => {
+    try { return JSON.parse(window.sessionStorage.getItem("utopy.circular.purchaseContext") || "null")?.context || null; } catch { return null; }
+  });
   const [replyOpen, setReplyOpen] = useState(false);
   const [replyOffer, setReplyOffer] = useState<MtOffer | null>(null);
 const [inboxThreadId, setInboxThreadId] = useState<string | null>(null);
   const [nsFilter, setNsFilter] = useState<string>("__ALL__");
   const [activeCajero, setActiveCajero] = useState<MtCajero | null>(null);
-  const [notifyEnabled, setNotifyEnabled] = useState(false);
-  const [notifyNs, setNotifyNs] = useState<string>("__ALL__");
-  const seenOfferIdsRef = useRef<Set<string>>(new Set());
-  const [notifModalOpen, setNotifModalOpen] = useState(false);
+  const [frequencyEnabled, setFrequencyEnabled] = useState(false);
+  const [frequencyMode, setFrequencyMode] = useState<"soft" | "normal" | "now" | "silent">("soft");
+  const [frequencyHasActive, setFrequencyHasActive] = useState(false);
+  const [frequencyPulse, setFrequencyPulse] = useState(false);
+  const [frequencyOpen, setFrequencyOpen] = useState(false);
   const [threadViewerOpen, setThreadViewerOpen] = useState(false);
   const [threadViewerMode, setThreadViewerMode] = useState<"buyer" | "cajero">("buyer");
 const [threadViewerId, setThreadViewerId] = useState<string | null>(null);
-  // AR
+  const [kioskConsult, setKioskConsult] = useState<{
+  title: string;
+  seller: string;
+  whatsappUrl: string;
+  imageUrl?: string;
+  productId?: string;
+} | null>(null);
   const [publicProduct, setPublicProduct] = useState<MtProduct | null>(null);
 const [publicOffer, setPublicOffer] = useState<MtOffer | null>(null);
   const [arOpen, setArOpen] = useState(false);
@@ -1780,10 +2484,41 @@ const [lastCheckoutDocs, setLastCheckoutDocs] = useState<{
   receiptId?: string;
   invoiceId?: string;
 } | null>(null);
+  useEffect(() => {
+    let timer: number | null = null;
+    const onAttention = (event: Event) => {
+      const decisions = (event as CustomEvent)?.detail?.decisions;
+      if (!Array.isArray(decisions) || !decisions.some((item: any) => item?.outcome === "RESONANCE" || item?.outcome === "PUSH")) return;
+      setFrequencyPulse(false);
+      window.requestAnimationFrame(() => setFrequencyPulse(true));
+      if (timer != null) window.clearTimeout(timer);
+      timer = window.setTimeout(() => { setFrequencyPulse(false); timer = null; }, 950);
+    };
+    window.addEventListener("utopy:frequency:attention", onAttention);
+    return () => {
+      window.removeEventListener("utopy:frequency:attention", onAttention);
+      if (timer != null) window.clearTimeout(timer);
+    };
+  }, []);
   const { addToCart } = useCartStore();
-  const { products, offers, cajeros, status } = useMtClient();
+  const { products, offers, cajeros, status, allLive, syncState, refresh, hadLocalState } = useMtClient();
+  const routeProducts = useMemo(() => {
+    const byId = new Map<string, any>();
+    for (const product of products) byId.set(String(product.id), product);
+    for (const dv of allLive) {
+      const kind = String((dv as any)?.kind || "").toLowerCase();
+      const traits = Array.isArray((dv as any)?.traits) ? (dv as any).traits.join(" ").toLowerCase() : "";
+      if (!/product|producto|asset|pack|project|offer/.test(`${kind} ${traits}`)) continue;
+      const id = String((dv as any)?.attrs?.productId || (dv as any)?.id || "");
+      if (id && !byId.has(id)) byId.set(id, dv);
+    }
+    return Array.from(byId.values());
+  }, [products, allLive]);
   const { emitPresence, clearSignals } = usePresenceEmitter();
   const [produceView, setProduceView] = useState<ProduceView>("trabajos");
+  const [activityOperational, setActivityOperational] = useState(false);
+  const [operationalPanelOpen, setOperationalPanelOpen] = useState(false);
+  const [operationalPanelSection, setOperationalPanelSection] = useState<"overview" | "automations">("overview");
   useTradeIntentReceiver({
   products,
   onBuyProduct: (product, intent) => {
@@ -1804,7 +2539,7 @@ const [lastCheckoutDocs, setLastCheckoutDocs] = useState<{
     setInboxThreadId(threadId || null);
     setCheckoutOpen(true);
 
-    console.log("Trade intent buy recibido", intent);
+    if (import.meta.env.DEV) console.debug("Trade intent buy recibido", intent);
   },
   onConsultProduct: (product, intent) => {
     const matchedOffer =
@@ -1839,11 +2574,11 @@ const [lastCheckoutDocs, setLastCheckoutDocs] = useState<{
       setCheckoutOpen(true);
     }
 
-    console.log("Trade intent consult recibido", intent);
+    if (import.meta.env.DEV) console.debug("Trade intent consult recibido", intent);
   },
 });
 const navigate = useNavigate();
-const location = useLocation();
+const networkSearchQuery = new URLSearchParams(location.search).get("search") || "";
 const [mobileMarketMenuOpen, setMobileMarketMenuOpen] = useState(false);
 const marketPressTimerRef = useRef<number | null>(null);
 const marketLongPressedRef = useRef(false);
@@ -1852,18 +2587,188 @@ const params = useParams<{
   offerId?: string;
   threadId?: string;
 }>();
+const openProductRoute = (product: MtProduct) => {
+  rememberProductOrigin(product, routeProducts, `${location.pathname}${location.search}${location.hash}`);
+  navigate(productPath(product, routeProducts));
+};
+
+useEffect(() => {
+  if (networkSearchQuery) setSearchOpen(true);
+}, [networkSearchQuery]);
+
+const safeInternalReturnPath = (value: string | null | undefined) => {
+  const raw = String(value || "").trim();
+  if (!raw || typeof window === "undefined") return null;
+
+  try {
+    const parsed = new URL(raw, window.location.origin);
+    if (parsed.origin !== window.location.origin) return null;
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return raw.startsWith("/") ? raw : null;
+  }
+};
+
+const rememberCircularOrigin = () => {
+  if (tab !== "circular") {
+    previousMarketTabRef.current = tab as Exclude<Tab, "circular">;
+  }
+};
+
+const openCircular = (
+  view: CircularWorldView = "mapa",
+  returnTo?: string | null,
+) => {
+  if (view === "publicar") {
+    const context = new URLSearchParams(location.search).get("createWith") || spaceNavigation.selectedRef;
+    setTab("crear");
+    navigate(`/market?tab=crear${context ? `&createWith=${encodeURIComponent(context)}` : ""}`);
+    return;
+  }
+  rememberCircularOrigin();
+  setMobileMarketMenuOpen(false);
+  setCircularInitialView(view);
+  const origin = safeInternalReturnPath(returnTo) || (tab !== "circular" ? `${location.pathname}${location.search}${location.hash}` : circularReturnToRef.current);
+  circularReturnToRef.current = origin;
+  setTab("circular");
+  navigate(`/market?tab=circular&view=${encodeURIComponent(view)}${origin ? `&returnTo=${encodeURIComponent(origin)}` : ""}`);
+};
+
+const openLivingSpace = (projection: "orbit" | "map") => {
+  updateSpaceNavigation({ projection });
+  openCircular("mapa");
+};
+
+const selectMainTab = (next: Exclude<Tab, "circular">) => {
+  const root=territoryMode?'/mt':'/market';
+  if (next === "producir") { setTab("crear"); navigate(`${root}?tab=crear`); return; }
+  navigate(`${root}?tab=${next}`);
+  setTab(next);
+};
+
+const closeCircular = () => {
+  updateSpaceNavigation({ projection: "feed" });
+  const query = new URLSearchParams(location.search);
+  const queryReturnTo = safeInternalReturnPath(query.get("returnTo"));
+
+  let storedReturnTo: string | null = null;
+  try {
+    storedReturnTo = safeInternalReturnPath(
+      window.sessionStorage.getItem("utopy.circular.returnTo"),
+    );
+    window.sessionStorage.removeItem("utopy.circular.returnTo");
+  } catch {}
+
+  const returnTo =
+    circularReturnToRef.current || queryReturnTo || storedReturnTo;
+
+  let pendingPurchase: any = null;
+  try { pendingPurchase = JSON.parse(window.sessionStorage.getItem("utopy.circular.purchaseContext") || "null"); } catch {}
+
+  circularReturnToRef.current = null;
+
+  const currentRoute =
+    `${location.pathname}${location.search}${location.hash}`;
+
+  if (returnTo && returnTo !== currentRoute) {
+    navigate(returnTo, { replace: true });
+    return;
+  }
+
+  if (pendingPurchase?.context && checkoutProd) {
+    try { window.sessionStorage.removeItem("utopy.circular.purchaseContext"); } catch {}
+    setCircularPurchaseContext(null);
+    setTab(previousMarketTabRef.current || "mercado");
+    setCheckoutOpen(true);
+    return;
+  }
+
+  setTab(previousMarketTabRef.current || "mercado");
+
+  // Limpia el deep-link del mapa para que Atrás/Adelante no lo reabra.
+  if (
+    (location.pathname === "/market" || location.pathname === "/market/mapa") &&
+    (query.get("tab") === "circular" ||
+      query.get("view") === "profile" ||
+      query.get("view") === "red" ||
+      location.pathname === "/market/mapa")
+  ) {
+    navigate("/market", { replace: true });
+  }
+};
+
+useEffect(() => {
+  const query = new URLSearchParams(location.search);
+  const requestedTab = String(query.get("tab") || "").toLowerCase();
+  const requestedView = String(query.get("view") || "").toLowerCase();
+  if (query.get("frequencyId") && !frequencyOpen) setFrequencyOpen(true);
+  if (["mercado", "categorias", "ofertas", "producir", "mis_pedidos", "crear"].includes(requestedTab)) {
+    setTab(requestedTab === "producir" ? "mis_pedidos" : requestedTab as Tab);
+  }
+  const requestedSection = query.get("section");
+  if (["producir", "mis_pedidos"].includes(requestedTab)) {
+    const operational = !!requestedSection && ["trabajos", "conversaciones", "pedidos", "publicar", "caja"].includes(requestedSection);
+    setActivityOperational(requestedTab === "producir" || operational);
+    if (operational) setProduceView(requestedSection as ProduceView);
+  }
+
+  const shouldOpenCircular =
+    location.pathname === "/market/mapa" ||
+    requestedTab === "circular" ||
+    requestedView === "profile" ||
+    requestedView === "red";
+
+  if (requestedView === "publicar" && shouldOpenCircular) {
+    setTab("crear");
+    const context = query.get("createWith") || spaceNavigation.selectedRef;
+    navigate(`/market?tab=crear${context ? `&createWith=${encodeURIComponent(context)}` : ""}`, { replace: true });
+    return;
+  }
+  if (!shouldOpenCircular) {
+    if (location.pathname === "/market" && !["mercado", "categorias", "ofertas", "producir", "mis_pedidos", "crear"].includes(requestedTab)) setTab("mercado");
+    return;
+  }
+
+  const nextView: CircularWorldView =
+    requestedView === "profile" || requestedView === "red"
+      ? "red"
+      : ([
+            "mapa",
+            "publicar",
+            "radar",
+            "fabrica",
+            "conectar",
+            "cadena",
+            "aportes",
+          ].includes(requestedView)
+          ? requestedView
+          : "mapa") as CircularWorldView;
+
+  if (tab !== "circular") {
+    previousMarketTabRef.current = tab as Exclude<Tab, "circular">;
+  }
+
+  circularReturnToRef.current = safeInternalReturnPath(query.get("returnTo"));
+  try {
+    const pending = JSON.parse(window.sessionStorage.getItem("utopy.circular.purchaseContext") || "null");
+    setCircularPurchaseContext(pending?.context || null);
+  } catch {}
+
+  if (circularInitialView !== nextView) {
+    setCircularInitialView(nextView);
+  }
+  if (tab !== "circular") {
+    setTab("circular");
+  }
+}, [location.pathname, location.search]);
 
 const openedDeepLinkRef = useRef<string | null>(null);
 const [presenceOrderDocs, setPresenceOrderDocs] = useState<{
   orderId: string;
   threadId: string;
 } | null>(null);
-useEffect(() => {
-  const unsub = mtLiveSubscribe((all: DatoVivo[]) => {
-    setAllDv(all || []);
-  });
-  return () => unsub();
-}, []);
+
+
 const openThreadGlobal = (
   threadId: string | null | undefined,
   mode: "buyer" | "cajero" = "buyer"
@@ -1896,15 +2801,79 @@ const namespaces = useMemo(() => {
         ? products
         : products.filter((p) => p.meta?.ns === nsFilter);
 
-    return base.filter((p: any) => {
-      const stock = Number(p.stock ?? 0);
-      const hidden = p?.meta?.hidden === true;
-      const status = p?.meta?.status; // "out_of_stock" | "active" | etc
+    return base
+      .filter((p: any) => {
+        const hidden = p?.meta?.hidden === true || p?.attrs?.hidden === true;
+        const status = String(
+          p?.meta?.status ?? p?.attrs?.status ?? "active",
+        ).toLowerCase();
+        const available =
+          p?.available ?? p?.attrs?.available ?? p?.meta?.available;
+        const rawStock =
+          p?.stock ??
+          p?.attrs?.stock ??
+          p?.attrs?.stockQty ??
+          p?.meta?.stock ??
+          p?.meta?.stockQty;
+        const stockKnown =
+          rawStock !== undefined &&
+          rawStock !== null &&
+          String(rawStock).trim() !== "" &&
+          Number.isFinite(Number(rawStock));
+        const stock = stockKnown ? Number(rawStock) : null;
 
-      // ✅ solo mostrar si está activo y con stock
-      return !hidden && status !== "out_of_stock" && stock > 0;
-    });
+        if (hidden) return false;
+        if (["out_of_stock", "disabled", "inactive", "deleted"].includes(status)) {
+          return false;
+        }
+        if (available === false) return false;
+        if (stockKnown && Number(stock) <= 0) return false;
+
+        // Un nodo puede publicar disponibilidad sin revelar un stock exacto.
+        // Market lo muestra; Falcon decidirá después si lo selecciona.
+        return true;
+      })
+      .sort((a: any, b: any) => {
+        const at = Date.parse(
+          String(a?.meta?.updatedAt ?? a?.meta?.ts ?? a?.attrs?.updatedAt ?? ""),
+        );
+        const bt = Date.parse(
+          String(b?.meta?.updatedAt ?? b?.meta?.ts ?? b?.attrs?.updatedAt ?? ""),
+        );
+        return (Number.isFinite(bt) ? bt : 0) - (Number.isFinite(at) ? at : 0);
+      });
   }, [products, nsFilter]);
+  const [feedProductIds, setFeedProductIds] = useState<Set<string>>(() => new Set(products.map((product) => String(product.id))));
+  const [pendingProductIds, setPendingProductIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    const currentIds = new Set(visibleProducts.map((product) => String(product.id)));
+    setFeedProductIds((previous) => {
+      const retained = new Set(Array.from(previous).filter((id) => currentIds.has(id)));
+      const incoming = Array.from(currentIds).filter((id) => !retained.has(id));
+      if (!incoming.length) return retained;
+      if (retained.size === 0 || window.scrollY < 180) {
+        incoming.forEach((id) => retained.add(id));
+        return retained;
+      }
+      setPendingProductIds((pending) => new Set([...pending, ...incoming]));
+      return retained;
+    });
+  }, [visibleProducts]);
+  const displayedProducts = useMemo(
+    () => visibleProducts.filter((product) => feedProductIds.has(String(product.id))),
+    [visibleProducts, feedProductIds],
+  );
+  const revealPendingProducts = () => {
+    const anchor = window.scrollY;
+    setFeedProductIds((current) => new Set([...current, ...pendingProductIds]));
+    setPendingProductIds(new Set());
+    window.requestAnimationFrame(() => window.scrollTo({ top: anchor }));
+  };
+  const hasVisibleMoDesigns = useMemo(() => (allLive || []).some((dv: any) =>
+    /^(design\.outcome|design\.publication)$/.test(String(dv?.kind || "")) &&
+    dv?.attrs?.status === "published" && dv?.attrs?.discoverable !== false &&
+    (dv?.meta?.scopes || dv?.attrs?.scopes || []).includes("public")
+  ), [allLive]);
   const visibleOffers = useMemo(() => {
   const byId = new Map(products.map((p) => [String(p.id), p]));
 
@@ -1933,6 +2902,13 @@ const namespaces = useMemo(() => {
     return true;
   });
 }, [offers, products, nsFilter]);
+  const displayOffers = useMemo(
+    () => visibleOffers.filter((offer: any) => {
+      if (offerView === "all") return true;
+      return offerView === "buy" ? offer?.tipo === "compra" : offer?.tipo !== "compra";
+    }),
+    [offerView, visibleOffers],
+  );
 
 async function upsertAndPublishDV(dv: any) {
   const finalDv = {
@@ -1943,31 +2919,187 @@ async function upsertAndPublishDV(dv: any) {
       ts: dv?.meta?.ts || new Date().toISOString(),
     },
   };
+  const targetNodeId = String(
+    finalDv?.attrs?.target?.nodeId ||
+      finalDv?.attrs?.targetNodeId ||
+      finalDv?.attrs?.sellerNodeId ||
+      finalDv?.attrs?.sellerId ||
+      "",
+  ) || null;
+  const result = await publishAuthorizedDV({
+    dv: finalDv,
+    allLive,
+    activeActor: localBuyerActor,
+    targetNodeId,
+    sensitivity: "relationship",
+  });
+  return result.dv;
+}
+async function solicitarPorUtopy(item: any) {
+  if (!localBuyerActor?.id) return;
+  const productId = String(item?.id || "");
+  const nombre =
+    item?.attrs?.nombre || item?.nombre || item?.meta?.name || "Producto";
+  const imageUrl = getProductImageUrl(item);
+  const sellerId =
+    item?.attrs?.sellerId ||
+    item?.attrs?.storeId ||
+    item?.meta?.storeId ||
+    item?.meta?.seller?.id ||
+    "seller";
+  const sellerName = getProductSellerName(item);
+  const threadId = resolveProductThreadId(item);
+  const relation = item?.attrs?.relation || item?.meta?.relation || {};
+  const chainId =
+    item?.attrs?.chainId || item?.meta?.chainId || relation?.chainId || threadId;
+  const rootDvId =
+    item?.attrs?.rootDvId || item?.meta?.rootDvId || relation?.rootDvId || item?.id;
 
-  // 1. Local inmediato
-  mtLiveUpsert(finalDv);
-
-  // 2. Seed / bus
-  try {
-    await publishDatoVivo(finalDv);
-  } catch (err) {
-    console.warn("[MT] No se pudo publicar por seedbus:", err);
-  }
-
-  // 3. Micelio directo para que al recargar NO vuelva el viejo
-  try {
-    await fetch(`${MICELIO_HTTP}/dv`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+  const dv: DatoVivo = {
+    id: `mt:consult:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
+    kind: "mt:consult",
+    attrs: {
+      productId,
+      nombre,
+      imageUrl,
+      imagen: imageUrl,
+      sellerId,
+      sellerName,
+      designId: item?.attrs?.designId || relation?.designId || null,
+      workId: item?.attrs?.workId || relation?.workId || null,
+      threadId,
+      chainId,
+      rootDvId,
+      parentDvId: item?.id || null,
+      relation: {
+        designId: item?.attrs?.designId || relation?.designId || null,
+        workId: item?.attrs?.workId || relation?.workId || null,
+        threadId,
+        chainId,
+        rootDvId,
+        parentDvId: item?.id || null,
       },
-      body: JSON.stringify(finalDv),
-    });
-  } catch (err) {
-    console.warn("[MT] No se pudo persistir directo en Micelio:", err);
-  }
+      sourceRefs: [{ id: productId, kind: String(item?.kind || "mt:producto") }],
+      participants: [String(localBuyerActor.id), String(sellerId)],
+      fromActorId: String(localBuyerActor.id),
+      fromActorName: String(localBuyerActor.name || "Persona compradora"),
+      toActorId: String(sellerId),
+      message: `Consulta por ${nombre}`,
+      text: `Consulta por ${nombre}`,
+      status: "open",
+    },
+    traits: ["mt:consult", "mt:market", "mt:intent", "utopy:chain", `seller:${sellerId}`],
+    meta: {
+      ns: item?.meta?.ns || "mt:market",
+      ts: new Date().toISOString(),
+      source: "market.product.card",
+      imageUrl,
+      storeId: sellerId,
+      storeName: sellerName,
+      threadId,
+      chainId,
+      rootDvId,
+      parentDvId: item?.id || null,
+      scopes: ["participants"],
+      product: item,
+    },
+  };
 
-  return finalDv;
+  await upsertAndPublishDV(dv);
+  setInboxThreadId(threadId);
+  setThreadViewerId(threadId);
+  setThreadViewerMode("buyer");
+  setThreadViewerOpen(true);
+}
+
+async function solicitarFabricacion(item: any) {
+  if (!localBuyerActor?.id) return;
+  const nombre =
+    item?.attrs?.nombre || item?.nombre || item?.meta?.name || "diseño";
+  const sellerNodeId =
+    item?.attrs?.author?.nodeId ||
+    item?.attrs?.source?.nodeId ||
+    item?.meta?.originNode ||
+    null;
+  const sellerActorId =
+    item?.attrs?.author?.id ||
+    item?.attrs?.sellerId ||
+    item?.attrs?.storeId ||
+    item?.meta?.seller?.id ||
+    null;
+  const buyerActorId = String(localBuyerActor.id);
+  const location = await requestApproximateBrowserLocation();
+  const signal = buildLinkedWorkIntentDV({
+    text: `Quiero fabricar o adaptar ${nombre}. Necesito una propuesta clara de fabricación, materiales, tiempo y entrega.`,
+    actorId: String(localBuyerActor.id),
+    actorName: String(localBuyerActor.name || "Persona compradora"),
+    nodeId: String(localBuyerActor?.nodeId || "") || null,
+    threadId: resolveProductThreadId(item),
+    chainId:
+      item?.attrs?.chainId ||
+      item?.meta?.chainId ||
+      item?.attrs?.relation?.chainId ||
+      null,
+    sourceDV: item,
+    sourceActionId: item?.id || null,
+    title: `Fabricar · ${nombre}`,
+    domain: item?.attrs?.workDomain || item?.attrs?.domain || "furniture",
+    quantity: 1,
+    unit: "job",
+    location,
+    scopes: ["public"],
+  });
+
+  signal.attrs = {
+    ...(signal.attrs || {}),
+    productId: item?.id || null,
+    sourceKind: String(item?.kind || "mt:producto"),
+    source: {
+      ...(item?.attrs?.source || {}),
+      id: item?.id || null,
+      kind: String(item?.kind || "mt:producto"),
+      sceneId:
+        item?.attrs?.source?.sceneId || item?.attrs?.sceneId || null,
+      designId:
+        item?.attrs?.designId || item?.attrs?.relation?.designId || null,
+    },
+    context: {
+      sceneId:
+        item?.attrs?.source?.sceneId || item?.attrs?.sceneId || null,
+    },
+    category: "fabrication",
+    sellerId: sellerActorId,
+    toActorId: sellerActorId,
+    participants: Array.from(
+      new Set([buyerActorId, sellerActorId].filter(Boolean).map(String)),
+    ),
+    unreadBy: sellerActorId ? [String(sellerActorId)] : [],
+    target:
+      sellerNodeId || sellerActorId
+        ? { nodeId: sellerNodeId, actorId: sellerActorId }
+        : null,
+    requestedCapabilities: Array.from(
+      new Set([
+        ...((signal.attrs?.requestedCapabilities || []) as string[]),
+        "Fabricar a partir de un diseño MO",
+        "Preparar materiales y presupuesto",
+        "Coordinar entrega o instalación",
+      ]),
+    ),
+  };
+  signal.traits = Array.from(
+    new Set([
+      ...(signal.traits || []),
+      "mo:fabrication.request",
+      "circular:demand",
+      "map:visible",
+    ]),
+  );
+
+  await upsertAndPublishDV(signal);
+  const threadId = String(signal?.attrs?.threadId || signal?.meta?.threadId || "");
+  setInboxThreadId(threadId || null);
+  openCircular("mapa");
 }
 
 async function publishClosedMandates(
@@ -2068,31 +3200,6 @@ function buildProductStockDV(product: any, nextStock: number) {
 
 
   useEffect(() => {
-    const currentIds = new Set<string>();
-
-    for (const o of offers) {
-      const id = String(o?.id || "");
-      if (!id) continue;
-
-      currentIds.add(id);
-
-      const wasSeen = seenOfferIdsRef.current.has(id);
-      if (wasSeen) continue;
-
-      // primera carga: solo registrar, no notificar spam inicial
-      if (seenOfferIdsRef.current.size === 0) continue;
-
-      const ns = getOfferNs(o);
-      const nsMatches = notifyNs === "__ALL__" || ns === notifyNs;
-
-      if (notifyEnabled && nsMatches) {
-        notifyNewOffer(o);
-      }
-    }
-
-    seenOfferIdsRef.current = currentIds;
-  }, [offers, notifyEnabled, notifyNs]);
-  useEffect(() => {
     const eng = startMtEscrowEngineForMsWeb({
       ns: "mt:market",
       policy: {
@@ -2115,10 +3222,11 @@ const abrirCheckout = (p: MtProduct) => {
     pAny?.meta?.threadId ||
     resolveProductThreadId(p);
 
+  const canonicalCheckoutProduct = universalProductToCheckoutProduct(projectUniversalProduct(p));
   const nextProduct: MtProduct = {
-    ...p,
+    ...canonicalCheckoutProduct,
     meta: {
-      ...(p.meta || {}),
+      ...(canonicalCheckoutProduct.meta || p.meta || {}),
       threadId,
       author: pAny?.attrs?.author || pAny?.meta?.author,
       contact: pAny?.attrs?.contact || pAny?.meta?.contact,
@@ -2297,6 +3405,40 @@ pay: {
 };
 
 
+async function handleConsultarDirecto(item: any) {
+  const whatsappUrl = buildWhatsappConsultUrl(item);
+
+  if (!whatsappUrl) {
+    await solicitarPorUtopy(item);
+    return;
+  }
+
+  const title =
+    item?.attrs?.nombre ||
+    item?.nombre ||
+    item?.meta?.name ||
+    "Producto";
+
+  const seller = getProductSellerName(item);
+
+  // En tótem NO salir de la página
+  if (kioskMode) {
+    await solicitarPorUtopy(item);
+
+  setKioskConsult({
+  title,
+  seller,
+  whatsappUrl,
+  imageUrl: getProductImageUrl(item),
+  productId: String(item?.id || ""),
+});
+
+    return;
+  }
+
+  // En celular/PC normal sí abrir WhatsApp
+  window.open(whatsappUrl, "_blank", "noopener,noreferrer");
+}
 const ensureOrderVisibleForCajero = async (payload: any) => {
   const orderId = String(payload?.orderId || "").trim();
   const threadId = String(payload?.threadId || "").trim();
@@ -2304,7 +3446,9 @@ const ensureOrderVisibleForCajero = async (payload: any) => {
   if (!orderId || !threadId) return;
 
   const buyerId =
-    String(payload?.buyerId || localBuyerActor?.id || "buyer:local").trim();
+    String(payload?.buyerId || localBuyerActor?.id || "").trim();
+
+  if (!buyerId) return;
 
   const cajeroId = String(activeCajero?.id || "").trim();
   const cajeroName = String(activeCajero?.nombre || "").trim();
@@ -2388,6 +3532,8 @@ const ensureOrderVisibleForCajero = async (payload: any) => {
     console.warn("[MT] No se pudo publicar ruta de pedido a cajero:", err);
   }
 };
+// El descuento/cierre automático de stock se desactiva en la UI.
+// Debe ejecutarlo el nodo propietario o un runtime idempotente del servidor.
 const stockClosedByOrderRef = useRef<Set<string>>(new Set());
 
 function isPaidOrConfirmedDV(d: any) {
@@ -2549,8 +3695,11 @@ useEffect(() => {
   if (openedDeepLinkRef.current === key) return;
 
   if (productId) {
-    const product = products.find((p) => String(p.id) === String(productId));
+    const product = resolveProductRoute(routeProducts, productId) as MtProduct | null;
     if (!product) return;
+
+    const humanPath = productPath(product, routeProducts);
+    if (location.pathname !== humanPath && /[:%]/.test(productId)) navigate(humanPath, { replace: true });
 
     openedDeepLinkRef.current = key;
     setTab("mercado");
@@ -2585,41 +3734,79 @@ useEffect(() => {
   params.threadId,
   location.pathname,
   products,
+  routeProducts,
   offers,
 ]);
   const abrirAr = (p: MtProduct) => {
     setArProduct(p);
     setArOpen(true);
   };
-  const [allLive, setAllLive] = useState<any[]>([]);
   const allLiveClean = useMemo(
   () => (allLive || []).filter((dv: any) => !isExplodedMoPackDV(dv)),
   [allLive]
 );
 
-const allDvClean = useMemo(
-  () => (allDv || []).filter((dv: any) => !isExplodedMoPackDV(dv)),
-  [allDv]
-);
+const allDvClean = allLiveClean;
 
-useEffect(() => {
-  return mtLiveSubscribe((items) => setAllLive(items || []));
-}, []);
+
+
 const enrichedReplyOffer = useMemo(() => {
   if (!replyOffer) return null;
   return buildEnrichedOfferForAction(replyOffer, products);
 }, [replyOffer, products]);
 
-const localBuyerActor = useMemo(() => {
-  try {
-    const raw = localStorage.getItem("mt.actor");
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed?.id) return parsed;
-    }
-  } catch {}
-  return { id: "buyer:local", name: "Comprador local", role: "buyer" };
-}, []);
+const [identityContext, setIdentityContext] = useState<CurrentIdentityContext | null>(null);
+const [spaceNavigation, updateSpaceNavigation] = useLivingSpaceNavigation(identityContext?.actorId || "");
+useEffect(() => {
+  let mounted = true;
+  void resolveCurrentIdentityContext({ allLive, activeActor: activeCajero })
+    .then((next) => {
+      if (mounted) setIdentityContext(next);
+      if (mounted) mtLiveSetAccessContext({ actorId: next.actorId, nodeId: next.actingAsNodeId || undefined });
+    })
+    .catch(() => {
+      if (mounted) { setIdentityContext(null); mtLiveSetAccessContext(null); }
+    });
+  return () => {
+    mounted = false;
+  };
+}, [allLive, activeCajero]);
+
+const localBuyerActor = useMemo(
+  () => identityContext
+    ? {
+        id: identityContext.actorId,
+        actorId: identityContext.actorId,
+        name: identityContext.displayName || "Persona",
+        role: "buyer",
+        nodeId: identityContext.actingAsNodeId || identityContext.nodeId || null,
+      }
+    : null,
+  [identityContext],
+);
+const myLiveProfile = useMemo(() => {
+  const profiles = projectLiveProfiles(allLive);
+  const actorId = String(localBuyerActor?.id || "");
+  const nodeId = String(localBuyerActor?.nodeId || "");
+  return profiles.find((profile) =>
+    (actorId && profile.actorId === actorId) ||
+    (nodeId && profile.nodeId === nodeId)
+  ) || null;
+}, [allLive, localBuyerActor]);
+const openMyLiveProfile = () => {
+  setProfileQuickOpen(true);
+};
+useEffect(()=>{const params=new URLSearchParams(location.search);if(params.get('account')!=='1')return;setProfileQuickOpen(true);params.delete('account');navigate({pathname:location.pathname,search:params.toString()?`?${params}`:''},{replace:true,state:location.state});},[location.pathname,location.search,navigate]);
+const territorialFeedProducts = useMemo(() => {
+  if (territorialMode === "explore") return displayedProducts;
+  const need = myLiveProfile?.source || localBuyerActor;
+  const territory = String((need as any)?.attrs?.territoryId || (need as any)?.attrs?.territory?.id || "");
+  if (!geoPoint(need) && !territory) return displayedProducts;
+  const scored = displayedProducts.map((product) => ({ product, relation: canRelate({ need, capability: product, mode: territorialMode }) }));
+  const recommended = scored.filter((entry) => entry.relation.recommended);
+  if (!recommended.length) return displayedProducts;
+  return recommended.sort((left, right) => Number(left.relation.distanceKm ?? Infinity) - Number(right.relation.distanceKm ?? Infinity)).map((entry) => entry.product);
+}, [displayedProducts, localBuyerActor, myLiveProfile, territorialMode]);
 
 const tradeMessages = useMemo(() => {
   return allLive.filter((d: any) => {
@@ -2632,7 +3819,18 @@ const tradeMessages = useMemo(() => {
       k === "trade.intent.fulfill" ||
       k === "trade.intent.message" ||
       k === "market.order.message" ||
-      k === "market.order.event"
+      k === "market.order.event" ||
+      k === "work.intent" ||
+      k === "work.plan" ||
+      k === "work.execution" ||
+      k === "work.outcome" ||
+      k === "mo.fabrication.pack" ||
+      k === "resonance.response" ||
+      k === "match.proposal" ||
+      k === "payment.outcome" ||
+      k === "delivery.outcome" ||
+      k === "trust.proof" ||
+      k === "value.proof"
     );
   });
 }, [allLive]);
@@ -2696,7 +3894,7 @@ const currentPresenceTarget = useMemo(() => {
       ),
     };
   }
-  
+
 
   if (tab === "mis_pedidos" && inboxThreadId) {
     const orderIdGuess = String(inboxThreadId).replace("order:thread:", "");
@@ -2989,90 +4187,8 @@ function buildProductStockMutation(product: any, nextStock: number) {
   };
 }
 
-useEffect(() => {
-  async function closeConfirmedSales() {
-    const closeEvents = allLive.filter(isRealCloseEvent);
 
-    for (const ev of closeEvents) {
-      const ctx = getCloseContextFromEvent(ev);
 
-      const key = String(
-        ev?.id ||
-          ctx.threadId ||
-          ctx.offerId ||
-          ctx.productId ||
-          `${ev?.kind}:${ev?.meta?.ts}`
-      );
-
-      if (!key) continue;
-      if (stockClosedByEventRef.current.has(key)) continue;
-
-      let touched = false;
-
-      if (ctx.offerId) {
-        const offer =
-          offers.find((o: any) => String(o?.id) === String(ctx.offerId)) ||
-          allLive.find((x: any) => String(x?.id) === String(ctx.offerId)) ||
-          allLive.find(
-            (x: any) => String(x?.attrs?.id || "") === String(ctx.offerId)
-          );
-
-        if (offer) {
-          await upsertAndPublishDV(buildClosedOfferMutation(offer));
-          touched = true;
-        }
-      }
-
-      const productIdFromOffer =
-        ctx.offerId
-          ? String(
-              offers.find((o: any) => String(o?.id) === String(ctx.offerId))
-                ?.productoId || ""
-            )
-          : "";
-
-      const productId = ctx.productId || productIdFromOffer;
-
-      if (productId) {
-        const product =
-          products.find((p: any) => String(p?.id) === String(productId)) ||
-          allLive.find((x: any) => String(x?.id) === String(productId)) ||
-          allLive.find(
-            (x: any) => String(x?.attrs?.id || "") === String(productId)
-          );
-
-        if (product) {
-          const currentStock = Math.max(
-            0,
-            Number(
-              product?.stock ??
-                product?.attrs?.stock ??
-                product?.meta?.stock ??
-                0
-            )
-          );
-
-          const nextStock = Math.max(0, currentStock - Math.max(1, ctx.qty || 1));
-
-          await upsertAndPublishDV(buildProductStockMutation(product, nextStock));
-          touched = true;
-        }
-      }
-
-      if (touched) {
-        stockClosedByEventRef.current.add(key);
-        console.log("[MT] Venta confirmada: stock/oferta cerrado", ctx);
-      } else {
-        console.warn("[MT] Evento confirmado sin producto/oferta encontrado", {
-          ev,
-          ctx,
-        });
-      }
-    }
-  }
-
-  closeConfirmedSales();
-}, [allLive, offers, products]);
 useEffect(() => {
   clearSignals();
 
@@ -3107,55 +4223,8 @@ useEffect(() => {
     clearSignals();
   };
 }, [tab, visibleProducts, visibleOffers, inboxThreadId, emitPresence, clearSignals]);
-useEffect(() => {
-  async function closeStockFromPaidOrders() {
-    const paidEvents = allLive.filter(isPaidOrConfirmedDV);
 
-    for (const ev of paidEvents) {
-      const key = getOrderKeyFromDV(ev);
-      if (!key) continue;
-      if (stockClosedByOrderRef.current.has(key)) continue;
 
-      const ctx = findOrderContextForPaidDV(ev);
-      const qty = Number.isFinite(ctx.qty) && ctx.qty > 0 ? ctx.qty : 1;
-
-      let touched = false;
-
-      if (ctx.offerId) {
-        const offer = offers.find(
-          (o: any) => String(o?.id) === String(ctx.offerId)
-        );
-
-        if (offer) {
-          const closedOffer = buildOfferClosedMutation(offer);
-          await publishStockMutation(closedOffer);
-          touched = true;
-        }
-      }
-
-      if (ctx.productId) {
-        const product = products.find(
-          (p: any) => String(p?.id) === String(ctx.productId)
-        );
-
-        if (product) {
-          const currentStock = Math.max(0, Number(product?.stock ?? 0));
-          const nextStock = Math.max(0, currentStock - qty);
-
-          const updatedProduct = buildProductStockMutation(product, nextStock);
-          await publishStockMutation(updatedProduct);
-          touched = true;
-        }
-      }
-
-      if (touched) {
-        stockClosedByOrderRef.current.add(key);
-      }
-    }
-  }
-
-  closeStockFromPaidOrders();
-}, [allLive, offers, products]);
 useEffect(() => {
   if (!activeCajero?.id) return;
 
@@ -3175,7 +4244,7 @@ useEffect(() => {
       trustScore: 0.8,
     },
   ],
-}); 
+});
 
   return () => {
     try {
@@ -3224,50 +4293,86 @@ useEffect(() => {
     setMobileMarketMenuOpen(false);
   }
 }, [tab]);
+  const livingFeedItems = useMemo(() => {
+    const categoryOf = (product: any) => [
+      product?.meta?.cat,
+      product?.meta?.category,
+      ...(product?.meta?.categorias || []),
+      ...(Array.isArray(product?.meta?.categories) ? product.meta.categories : []),
+      product?.categoria,
+      ...(product?.categorias || []),
+      product?.attrs?.category,
+      product?.attrs?.categoria,
+      ...(product?.attrs?.categories || []),
+      ...(product?.attrs?.categorias || []),
+      ...(product?.tags || []),
+      ...(product?.attrs?.tags || []),
+      product?.kind,
+      ...(product?.traits || []),
+    ].filter(Boolean).join(" ");
+    const leadProducts = territoryMode?displayedProducts:territorialFeedProducts;
+    const foodProducts = territorialFeedProducts.filter((product: any) => isFoodLivingCategory(categoryOf(product))).slice(0, 8);
+    const selectedProducts = Array.from(new Map([...leadProducts, ...foodProducts].map((product: any) => [String(product.id), product])).values());
+    const productItems = selectedProducts.map((product: any) => {
+    const merchandising = readPublishedMerchandising(product);
+    const view = projectUniversalProduct(product, {
+      title: product?.nombre,
+      seller: getProductSellerName(product, allLive),
+      image: getProductImageUrl(product, allLive),
+    });
+    return {
+      id: String(product?.id || ""), title: view.title, seller: view.seller, sellerNodeId: view.sellerNodeId, image: view.image,
+      price: formatUniversalMoney(view.finalPrice, view.currency),
+      previousPrice: view.basePrice ? formatUniversalMoney(view.basePrice, view.currency) : null,
+      badge: merchandising.discountPct ? `-${merchandising.discountPct}%` : null,
+      category: categoryOf(product),
+      catalogCategory: String(product?.attrs?.category || product?.attrs?.categoria || product?.categoria || product?.meta?.category || product?.meta?.cat || ''),
+      financeAvailable: Boolean(merchandising.installmentCount || product?.creditEnabled || product?.attrs?.creditEnabled),
+      available: product?.available !== false && product?.attrs?.available !== false,
+      raw: product,
+    };
+    });
+    const housingItems = projectRentalProperties(allLive).filter((property) => property.availableRooms > 0).map((property) => {
+      const offer=allLive.find(dv=>dv.kind==='rental.offer'&&dv.attrs?.propertyId===property.id);
+      const nodeId=String(property.sellerNodeId||property.ownerNodeId||offer?.attrs?.sellerNodeId||'');
+      const manifest=allLive.find(dv=>/node\.manifest$/.test(String(dv.kind))&&String(dv.attrs?.nodeId||dv.attrs?.node?.id||dv.id)===nodeId);
+      return {
+      id: String(property.id), title: String(property.name || "Propiedad"), seller: String(manifest?.attrs?.name||manifest?.attrs?.node?.name||property.nodeName||property.name||'Vivienda'),
+      sellerNodeId: nodeId,
+      image: property.image || property.photos?.[0] || "",
+      price: rentalDisplayPrice(property.rooms, property.price, property.currency),
+      previousPrice: null, badge: null, category: "vivienda alquiler rental property",
+      catalogCategory:String(property.propertyType||property.tipo||''),
+      financeAvailable: false, available: true, raw: property,
+    };});
+    return [...productItems, ...housingItems];
+  }, [territorialFeedProducts, displayedProducts, territoryMode, allLive]);
+  const livingActivityCount = useMemo(() => {
+    const actorId = String(localBuyerActor?.id || "");
+    if (!actorId) return 0;
+    return allLive.filter((dv: any) => /order|pedido|conversation|message|contract|finance|delivery|work/i.test(String(dv?.kind || "")) && [dv?.attrs?.actorId, dv?.attrs?.buyerActorId, dv?.attrs?.holderActorId, dv?.attrs?.tenantActorId].some((value) => String(value || "") === actorId)).length;
+  }, [allLive, localBuyerActor?.id]);
+  const restoredMarketScrollRef = useRef(false);
+  useEffect(() => {
+    const scrollY = Number((location.state as any)?.restoreScrollY);
+    if (restoredMarketScrollRef.current || !Number.isFinite(scrollY) || scrollY <= 0) return;
+    if (!livingFeedItems.length && syncState !== "offline") return;
+    restoredMarketScrollRef.current = true;
+    const frame = window.requestAnimationFrame(() => window.requestAnimationFrame(() => window.scrollTo({ top: scrollY, behavior: "instant" as ScrollBehavior })));
+    return () => window.cancelAnimationFrame(frame);
+  }, [location.state, livingFeedItems.length, syncState]);
   return (
-    <Page>
+    <Page className={territoryMode?'mt-territory-root':undefined} style={{ "--market-header-height": `${headerHeight}px` } as React.CSSProperties}>
       {/* ✅ Header compacto */}
-      <TopBar>
+      <TopBar ref={headerRef}>
         <TopInner>
-         <Brand>
-  <BrandTitle>Market</BrandTitle>
-  <BrandSub>
-    <StatusDot s={status} />
-    <span>
-      {activeCajero
-        ? `Cajero: ${activeCajero.nombre}`
-        : "Caja: sin turno"}
-    </span>
-  </BrandSub>
-
-  <PresenceMiniBar>
-  {marketNearby.length > 0 ? (
-    <PresenceMiniChip tone="ok">
-      👀 {marketNearby.length} cerca
-    </PresenceMiniChip>
-  ) : null}
-
-  {marketByEntry.qr.length > 0 ? (
-    <PresenceMiniChip tone="info">
-      QR {marketByEntry.qr.length}
-    </PresenceMiniChip>
-  ) : null}
-
-  {marketByEntry.nfc.length > 0 ? (
-    <PresenceMiniChip tone="info">
-      NFC {marketByEntry.nfc.length}
-    </PresenceMiniChip>
-  ) : null}
-
-  {currentPresenceTarget.threadId ? (
-    <PresenceMiniChip tone="warn">
-      hilo activo
-    </PresenceMiniChip>
-  ) : null}
-</PresenceMiniBar>
+         <Brand type="button" aria-label="Volver al inicio de MS Market" onClick={() => selectMainTab("mercado")}>
+  <BrandEyebrow>UTOPÝ</BrandEyebrow>
+  <BrandTitle>{territoryMode?'MT':'MS MARKET'}</BrandTitle>
 </Brand>
-
+          {tab !== "circular" && tab !== "mercado" ? <HeaderSearch type="button" onClick={() => openLivingSpace("map")} aria-label="Buscar productos, tiendas o servicios"><Search/><span>Buscar productos, tiendas o servicios</span></HeaderSearch> : null}
           <RightTools>
+  <HeaderMore><summary aria-label="Más herramientas">⋯</summary><div><label>Red y catálogo
   <MiniSelect
     value={nsFilter}
     onChange={(e) => setNsFilter(e.target.value)}
@@ -3279,65 +4384,66 @@ useEffect(() => {
       </option>
     ))}
   </MiniSelect>
+  </label>
+  <HeaderIndicators>
+    {activeCajero ? <HeaderIndicator title={`Caja: ${activeCajero.nombre}`}><StatusDot s={status} /> Caja</HeaderIndicator> : null}
+  </HeaderIndicators>
+
+  <IconGhostBtn onClick={() => openLivingSpace("orbit")} title="Expresar una intención" aria-label="Expresar una intención"><Mic /></IconGhostBtn>
 
  <IconGhostBtn
-  active={notifyEnabled}
-  onClick={() => setNotifModalOpen(true)}
-  title="Configurar notificaciones"
-  aria-label="Configurar notificaciones"
->
-  {notifyEnabled ? <Bell /> : <BellOff />}
-</IconGhostBtn>
-
-  <PillBtn onClick={() => setCartOpen(true)}>
-    🛒 
+  onClick={() => setFrequencyOpen(true)}
+  title="Frecuencia"
+  aria-label="Abrir Frecuencia Viva"
+  aria-pressed={frequencyOpen}
+  className={[
+    "frequency-button",
+    frequencyEnabled ? "frequency-enabled" : "",
+    frequencyHasActive ? "frequency-active" : "",
+    frequencyMode === "silent" ? "frequency-silent" : "",
+    frequencyPulse ? "frequency-pulse" : "",
+  ].filter(Boolean).join(" ")}
+ >
+  <span className="frequency-glyph" aria-hidden="true">⌁</span>
+ </IconGhostBtn>
+  </div></HeaderMore>
+  <PillBtn onClick={() => setCartOpen(true)} aria-label="Abrir carrito" title="Carrito">
+    <ShoppingCart />
   </PillBtn>
+  <IconGhostBtn onClick={() => setProfileQuickOpen(true)} title="Mi identidad UTOPY" aria-label="Abrir Perfil Vivo" style={{ borderRadius:"50%",background:"#eee6ff",border:"2px solid #fff",boxShadow:"0 0 0 1px #e6def1",overflow:"hidden" }}>
+    {myLiveProfile?.avatar ? <img src={myLiveProfile.avatar} alt="" loading="eager" decoding="async" style={{ width:34,height:34,borderRadius:"50%",objectFit:"cover" }}/> : <UserRound/>}
+  </IconGhostBtn>
 </RightTools>
         </TopInner>
 <DesktopTabsRow>
-  <DesktopTabBtn active={tab === "mercado"} onClick={() => setTab("mercado")}>
-    <TabWrap>Mercado</TabWrap>
+  <DesktopTabBtn active={tab === "mercado"} onClick={() => selectMainTab("mercado")}>
+    <TabWrap>Inicio</TabWrap>
   </DesktopTabBtn>
-  <DesktopTabBtn
-  active={tab === "circular"}
-  onClick={() => setTab("circular")}
->
-  <TabWrap>Circular</TabWrap>
-</DesktopTabBtn>
+
 
   <DesktopTabBtn
     active={tab === "categorias"}
-    onClick={() => setTab("categorias")}
+    onClick={() => territoryMode?selectMainTab("mercado"):openLivingSpace("map")}
   >
-    <TabWrap>Categorías</TabWrap>
+    <TabWrap>Explorar</TabWrap>
   </DesktopTabBtn>
 
-  <DesktopTabBtn active={tab === "ofertas"} onClick={() => setTab("ofertas")}>
+  <DesktopTabBtn active={tab === "crear"} onClick={() => selectMainTab("producir")}>
     <TabWrap>
-      Ofertas
-      {offersUnreadCount > 0 ? <BadgeRed>{offersUnreadCount}</BadgeRed> : null}
-    </TabWrap>
-  </DesktopTabBtn>
-
-  <DesktopTabBtn
-    active={tab === "producir"}
-    onClick={() => setTab("producir")}
-  >
-    <TabWrap>
-      Producir
-      {cajeroUnreadCount > 0 ? <BadgeRed>{cajeroUnreadCount}</BadgeRed> : null}
+      Crear
     </TabWrap>
   </DesktopTabBtn>
 
   <DesktopTabBtn
     active={tab === "mis_pedidos"}
-    onClick={() => setTab("mis_pedidos")}
+    onClick={() => selectMainTab("mis_pedidos")}
   >
     <TabWrap>
-      Mis pedidos
+      Actividad
       {buyerUnreadCount > 0 ? <BadgeRed>{buyerUnreadCount}</BadgeRed> : null}
     </TabWrap>
   </DesktopTabBtn>
+
 </DesktopTabsRow>
       </TopBar>
       <PresenceGlobalBlock>
@@ -3396,142 +4502,88 @@ useEffect(() => {
   }}
 />
 
-      <Content>
+      <Content data-living-space={tab === "circular" ? spaceNavigation.projection : "feed"}>
+        {tab === "crear" ? <Suspense fallback={<p>Abriendo tu espacio para crear…</p>}><LivingCreationWorkspace allLive={allLive} activeActor={identityContext || localBuyerActor} initialText={spaceNavigation.query} onDraftTextChange={query => updateSpaceNavigation({ query })} contextRef={new URLSearchParams(location.search).get("createWith") || spaceNavigation.selectedRef} onActivity={section => { setActivityOperational(true); setProduceView(section); setTab("mis_pedidos"); navigate(`/market?tab=mis_pedidos&section=${section}`); }} onExplore={reference => { if (reference) updateSpaceNavigation({ selectedRef: reference }); openLivingSpace("map"); }} onChat={() => setConversationsOpen(true)} onOpenThread={openThreadGlobal} advanced={<ProducirPanel currentCajero={activeCajero}/>} /></Suspense> : null}
+        {tab !== "circular" && ["mis_pedidos", "producir"].includes(surfaceTab) ? <section className="utopy-ui utopy-card" style={{marginBottom:16}}><h2>Tu actividad</h2><p className="utopy-muted">Compras, conversaciones y trabajo, en un solo lugar.</p><nav className="utopy-activity-nav" aria-label="Actividad"><button className="utopy-button" type="button" aria-pressed={!activityOperational} onClick={() => { setActivityOperational(false); navigate("/market?tab=mis_pedidos"); }}>Mis compras</button>{activeCajero || identityContext?.actingAsNodeId || identityContext?.authorizations?.length ? <button className="utopy-button" type="button" aria-pressed={activityOperational} onClick={() => { setActivityOperational(true); navigate("/market?tab=mis_pedidos&section=trabajos"); }}>Trabajo y gestión de mi nodo</button> : null}<button className="utopy-button" type="button" onClick={() => setConversationsOpen(true)}>Chat Directo</button></nav></section> : null}
         {tab === "mercado" && (
           <Section>
-            {nsFilter !== "__ALL__" && (
-              <Subtle style={{ marginBottom: 10 }}>
-                Filtrando por <b>{nsFilter}</b>
-              </Subtle>
-            )}
-
-            <Grid>
-              {visibleProducts.map((p) => (
-                <Card key={p.id}>
-                  <Img src={p.imagen || "/placeholder.png"} alt={p.nombre} />
-                  <Title>{p.nombre}</Title>
-
-                  <Subtle style={{ marginTop: 6 }}>
-                    {p.unidad || "u"} · Stock: {p.stock ?? "—"}
-                  </Subtle>
-
-                  {typeof p.precio === "number" && <Price>{p.precio}</Price>}
-                  <Subtle style={{ marginTop: 4 }}>
-                    Pago: Cajero (recomendado) · BNB (opcional)
-                  </Subtle>
-
-                  <Chips>
-                    {p.meta?.ns && <Chip tone="neutral">{p.meta.ns}</Chip>}
-
-                    {p.meta?.sem?.conflict ? (
-                      <Chip
-                        tone="warn"
-                        title={
-                          p.meta.sem.conflictReason || "Conflicto semántico"
-                        }
-                      >
-                        Sem: conflicto
-                      </Chip>
-                    ) : p.meta?.sem?.chosen ? (
-                      <Chip
-                        tone="ok"
-                        title="Interpretación por consenso + trust"
-                      >
-                        Sem: ok
-                      </Chip>
-                    ) : null}
-
-
-                    {p.meta?.ar?.modelUrl ? (
-                      <Chip tone="neutral">AR</Chip>
-                    ) : null}
-                     <PresenceHeatBadge score={productHeatMap[String(p.id)] || 0} />
-                  </Chips>
-
-                  <Actions>
-                    <SmallBtn
-                      onClick={(e) => {
-                        flyToCart(e.currentTarget as HTMLElement, p.imagen);
-                     addToCart({
-  id: String(p.id),
-  nombre: p.nombre,
-  imagen: p.imagen,
-  price: p.precio || 0,
-  unidad: p.unidad || "u",
-  qty: 1,
-  meta: {
-    ns: p.meta?.ns,
-    token: p.meta?.token,
-    media: p.meta?.media,
-    caja: p.meta?.caja,
-    fromOfferId: (p.meta as any)?.fromOfferId,
-
-    // ✅ nuevo
-    threadId:
-      (p as any)?.attrs?.contact?.threadId ??
-      (p.meta as any)?.threadId ??
-      resolveProductThreadId(p),
-
-    author: (p as any)?.attrs?.author,
-    contact: (p as any)?.attrs?.contact,
-    vendor: (p as any)?.attrs?.vendor,
-    source: (p as any)?.attrs?.source,
-  },
-});
-                      }}
-                    >
-                      Agregar
-                    </SmallBtn>
-<SmallBtn
-  tone="ghost"
-  onClick={() => {
-    navigate(productPath(p.id));
-    setPublicProduct(p);
-    setPublicOffer(null);
-  }}
->
-  Ver ficha
-</SmallBtn>
-
-<SmallBtn
-  tone="ghost"
-  onClick={() => sharePublicLink(productPath(p.id), p.nombre)}
->
-  Compartir
-</SmallBtn>
-
-                    {p.meta?.ar?.modelUrl && (
-                      <SmallBtn tone="ghost" onClick={() => abrirAr(p)}>
-                        Ver en AR
-                      </SmallBtn>
-                    )}
-                  </Actions>
-                </Card>
-              ))}
-            </Grid>
+            <UnifiedLivingMarket
+              items={livingFeedItems}
+              catalogStatus={syncState}
+              territoryMode={territoryMode}
+              onValue={()=>{setProfileInitialSpace('value');setProfileQuickOpen(true);}}
+              onChat={()=>setConversationsOpen(true)}
+              actorId={identityContext?.actorId || ""}
+              allLive={allLive}
+              highlights={<LivingHighlights allLive={allLive} actor={localBuyerActor} syncing={syncState === "syncing"} />}
+              onProjection={(projection) => projection === "feed" ? closeCircular() : openLivingSpace(projection)}
+              activityCount={livingActivityCount}
+              onOpenItem={(item) => {
+                if (Array.isArray(item?.rooms)) {
+                  const returnTo = `${location.pathname}${location.search}${location.hash}`;
+                  const scrollY = window.scrollY;
+                  sessionStorage.setItem("utopy.market.return", JSON.stringify({ returnTo, scrollY }));
+                  navigate(`/falcon/skylines/propiedad/${encodeURIComponent(String(item.id))}`, { state: { returnTo, scrollY } });
+                  return;
+                }
+                openProductRoute(item); setPublicProduct(item); setPublicOffer(null);
+              }}
+              onOpenNode={(item, seller) => {
+                const handle = profileHandleForIdentity(item, seller);
+                navigate(`/${handle}`, { state: { returnTo: `${location.pathname}${location.search}${location.hash}`, scrollY: window.scrollY } });
+              }}
+              onSearch={() => openLivingSpace("map")}
+              onExplore={() => openLivingSpace("map")}
+              onExploreFar={() => { setTerritorialMode("explore"); selectMainTab("categorias"); }}
+              onOffers={() => selectMainTab("ofertas")}
+              onCreate={() => selectMainTab("producir")}
+              onTerritory={setTerritorialMode}
+              onContext={(context) => {
+                const returnTo = `${location.pathname}${location.search}${location.hash}`;
+                const scrollY = window.scrollY;
+                sessionStorage.setItem("utopy.market.return", JSON.stringify({ returnTo, scrollY }));
+                navigate(`/falcon/${context}`, { state: { returnTo, scrollY } });
+              }}
+            />
+            {!displayedProducts.length ? <div className="mt-6 rounded-[24px] bg-white p-6 text-center text-sm text-slate-600"><b>{syncState === "offline" ? "Todavía no hay contenido guardado" : "Descubriendo la red…"}</b><p className="mt-2">{syncState === "offline" ? "Volvé a intentarlo cuando tengas conexión." : "Las novedades aparecerán acá."}</p><button type="button" onClick={refresh} className="mt-3 rounded-full bg-slate-950 px-4 py-2 font-bold text-white">Actualizar</button></div> : null}
           </Section>
         )}
         {tab === "circular" && (
-  <Section>
-    <CircularCenter
-      allLive={allLive}
-      activeCajero={activeCajero}
-      setTab={setTab}
-      setInboxThreadId={setInboxThreadId}
-      onOpenThread={(threadId) => openThreadGlobal(threadId, "cajero")}
-      onOfferMaterial={(cluster) => {
-        console.log("ofertar material", cluster);
-      }}
-      onOpenMO={(payload) => {
-        console.log("abrir en MO", payload);
-      }}
-    />
-  </Section>
+  <LivingSpaceLayer role="region" aria-label="Explorar tu espacio vivo">
+  <Suspense fallback={<CircularLoading><span>🗺️</span><b>Abriendo Mapa Vivo…</b></CircularLoading>}>
+  <CircularCenter
+    allLive={allLive}
+    initialProjection={spaceNavigation.projection}
+    onCreate={() => openCircular("publicar")}
+    activeCajero={activeCajero}
+    setTab={setTab}
+    setInboxThreadId={setInboxThreadId}
+    initialView={circularInitialView}
+    onExit={closeCircular}
+    onOpenThread={(threadId) => openThreadGlobal(threadId, "cajero")}
+    onOfferMaterial={(cluster) => {
+      if (import.meta.env.DEV) console.debug("ofertar material", cluster);
+    }}
+    onOpenMO={(payload) => {
+      if (import.meta.env.DEV) console.debug("abrir en MO", payload);
+    }}
+    purchaseContext={circularPurchaseContext}
+    onContinuePurchase={() => closeCircular()}
+    onOpenProduct={(raw) => {
+      const product = products.find((candidate: any) => String(candidate?.id) === String(raw?.id));
+      if (!product) return;
+      openProductRoute(product);
+      setPublicProduct(product);
+      setPublicOffer(null);
+    }}
+  />
+  </Suspense>
+  </LivingSpaceLayer>
 )}
-        {tab === "categorias" && (
-          <Section>
-            <CategoriasPanel
+        {surfaceTab === "categorias" && (
+          <CategoriasPanel
               products={visibleProducts}
+              allLive={allLive}
               nsFilter={nsFilter}
               onAddToCart={(p) =>
                 addToCart({
@@ -3561,102 +4613,85 @@ useEffect(() => {
                 })
               }
               onCheckout={abrirCheckout}
+              onOpenProduct={(product) => {
+                openProductRoute(product);
+                setPublicProduct(product);
+                setPublicOffer(null);
+              }}
             />
-          </Section>
         )}
 
-       {tab === "ofertas" && (
+       {surfaceTab === "ofertas" && (
   <>
-    <Section>
-      <div style={{ fontWeight: 950, fontSize: "1rem" }}>Ofertas</div>
-      <Subtle style={{ margin: "6px 0 10px" }}>
-        Ofertas vivas publicadas en la red (venta/compra).
-      </Subtle>
+    <MODesignOfferSection allLive={allLive} />
+    <div className="space-y-5">
+      <div>
+        <h2 className="text-2xl font-black text-slate-950">Ofertas</h2>
+        <p className="text-sm text-slate-500">Oportunidades vivas de la red</p>
+      </div>
 
-      {nsFilter !== "__ALL__" && (
-        <Subtle style={{ marginBottom: 10 }}>
-          Filtrando ofertas por <b>{nsFilter}</b>
-        </Subtle>
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        <button type="button" onClick={() => setOfferView("all")} className={`shrink-0 rounded-full border px-4 py-2 text-sm font-bold ${offerView === "all" ? "border-cyan-300 bg-cyan-100" : "border-slate-200 bg-white"}`}>Para vos</button>
+        {visibleOffers.some((offer: any) => offer?.tipo !== "compra") ? <button type="button" onClick={() => setOfferView("sell")} className={`shrink-0 rounded-full border px-4 py-2 text-sm font-bold ${offerView === "sell" ? "border-cyan-300 bg-cyan-100" : "border-slate-200 bg-white"}`}>Productos</button> : null}
+        {visibleOffers.some((offer: any) => offer?.tipo === "compra") ? <button type="button" onClick={() => setOfferView("buy")} className={`shrink-0 rounded-full border px-4 py-2 text-sm font-bold ${offerView === "buy" ? "border-cyan-300 bg-cyan-100" : "border-slate-200 bg-white"}`}>Buscan</button> : null}
+      </div>
+
+      {displayOffers.length ? (
+        <section className="space-y-3">
+          <h3 className="text-lg font-black text-slate-950">✨ Para vos</h3>
+          <OfferGrid>
+            {displayOffers.filter((offer: any) => !isExplodedMoPackDV(offer)).map((offer) => {
+              const linkedProduct = products.find((product) => String(product.id) === String(offer.productoId));
+              const title =
+                (offer as any)?.title ||
+                (offer as any)?.attrs?.title ||
+                (offer as any)?.attrs?.nombre ||
+                linkedProduct?.nombre ||
+                (offer.tipo === "compra" ? "Necesitan un producto" : "Producto disponible");
+              const seller = resolveLiveSeller(offer, allLive);
+              const image = resolveLiveImage(offer, allLive) || getOfferImage(offer) || (linkedProduct ? getProductImageUrl(linkedProduct, allLive) : "");
+              const hasResponse = tradeMessages.some((event: any) =>
+                String(event?.attrs?.offerId || event?.attrs?.respondsTo || "") === String(offer.id),
+              );
+              const open = () => {
+                if (offer.tipo !== "compra") {
+                  navigate(offerPath(offer.id));
+                  setPublicOffer(offer);
+                  setPublicProduct(null);
+                  return;
+                }
+                const enriched = buildEnrichedOfferForAction(offer, products);
+                const threadId =
+                  (enriched as any)?.attrs?.contact?.threadId ||
+                  (enriched as any)?.meta?.threadId ||
+                  resolveOfferThreadId(enriched);
+                setReplyOffer(enriched);
+                setInboxThreadId(threadId);
+                setReplyOpen(true);
+              };
+
+              return (
+                <LiveOfferCard
+                  key={offer.id}
+                  title={String(title)}
+                  seller={seller !== "Nodo vendedor" ? seller : undefined}
+                  sellerIdentity={offer}
+                  meta={`${Number(offer.cantidad || 1).toLocaleString("es-PY")} ${Number(offer.cantidad || 1) === 1 ? "unidad" : "unidades"}`}
+                  image={image}
+                  icon={offer.tipo === "compra" ? "🤝" : "🛍️"}
+                  eyebrow={offer.tipo === "compra" ? "Buscan" : "Producto"}
+                  actionLabel={hasResponse ? "Conversación" : offer.tipo === "compra" ? "Me interesa" : "Ver"}
+                  live={hasResponse}
+                  onAction={open}
+                />
+              );
+            })}
+          </OfferGrid>
+        </section>
+      ) : (
+        !hasVisibleMoDesigns ? <div className="rounded-[24px] bg-slate-50 p-8 text-center text-sm text-slate-500">No hay ofertas en esta selección.</div> : null
       )}
-
-      <Grid>
-        {visibleOffers.filter((o: any) => !isExplodedMoPackDV(o)).map((o) => {
-          const img = getOfferImage(o);
-          const ns = getOfferNs(o);
-          const title = getOfferTitle(o);
-
-          return (
-            <Card key={o.id}>
-              {img ? <Img src={img} alt={title} /> : null}
-
-              <Title>{title}</Title>
-
-              <Subtle style={{ marginTop: 6 }}>
-                {o.tipo.toUpperCase()} · {o.cantidad}u
-              </Subtle>
-
-              <Subtle>Producto: {o.productoId}</Subtle>
-
-              <Chips>
-                <Chip tone="neutral">{ns}</Chip>
-              </Chips>
-
-              <Price>{o.precio}</Price>
-              <Subtle style={{ marginTop: 4 }}>
-                Pago: Cajero (recomendado) · BNB (opcional)
-              </Subtle>
-
-              <Actions>
-               <SmallBtn
-  tone="ghost"
-  onClick={() => {
-    navigate(offerPath(o.id));
-    setPublicOffer(o);
-    setPublicProduct(null);
-  }}
->
-  Ver oferta
-</SmallBtn>
-
-<SmallBtn
-  tone="ghost"
-  onClick={() => sharePublicLink(offerPath(o.id), getOfferTitle(o))}
->
-  <Share2Icon/>
-</SmallBtn>
-
-                <SmallBtn
-  onClick={() => {
-    const enriched = buildEnrichedOfferForAction(o, products);
-    const threadId =
-      (enriched as any)?.attrs?.contact?.threadId ||
-      (enriched as any)?.meta?.threadId ||
-      resolveOfferThreadId(enriched);
-console.log("ENRICHED OFFER", {
-  id: enriched?.id,
-  sellerId: (enriched as any)?.sellerId,
-  sellerName: (enriched as any)?.sellerName,
-  threadId: (enriched as any)?.threadId,
-  attrsSellerId: (enriched as any)?.attrs?.sellerId,
-  attrsSellerName: (enriched as any)?.attrs?.sellerName,
-  contactSellerId: (enriched as any)?.attrs?.contact?.sellerId,
-  contactThreadId: (enriched as any)?.attrs?.contact?.threadId,
-  authorId: (enriched as any)?.attrs?.author?.id,
-  vendorId: (enriched as any)?.attrs?.vendor?.id,
-});
-    setReplyOffer(enriched);
-    setInboxThreadId(threadId);
-    setReplyOpen(true);
-  }}
->
-  Responder
-</SmallBtn>
-              </Actions>
-            </Card>
-          );
-        })}
-      </Grid>
-    </Section>
+    </div>
 
     <div style={{ height: 14 }} />
 
@@ -3666,8 +4701,8 @@ console.log("ENRICHED OFFER", {
       activeCajero={activeCajero}
       setInboxThreadId={setInboxThreadId}
       setTab={setTab}
-      Section={Section}
-      Grid={Grid}
+      Section={OfferSubsection}
+      Grid={OfferGrid}
       Card={Card}
       Title={Title}
       Subtle={Subtle}
@@ -3679,41 +4714,19 @@ console.log("ENRICHED OFFER", {
     />
   </>
 )}
-      {tab === "producir" && (
-  <Section>
+      {(surfaceTab === "producir" || (surfaceTab === "mis_pedidos" && activityOperational)) && (
+  <Section className="utopy-ui utopy-operations">
     <ProduceHeader>
-      <ProduceTitle>🏭 Centro de producción</ProduceTitle>
+      <ProduceTitle>Centro de producción</ProduceTitle>
       <ProduceSub>
-        Trabajos, pedidos, conversaciones y publicación separados para operar simple.
+        Tu taller de trabajo: pedidos, conversaciones, cola productiva y seguimiento.
       </ProduceSub>
     </ProduceHeader>
-
-    <ProduceHero>
-      <div style={{ fontWeight: 950 }}>
-        {activeCajero
-          ? `Turno activo: ${activeCajero.nombre}`
-          : "Sin cajero en turno"}
-      </div>
-
-      <div style={{ fontSize: "0.9rem", opacity: 0.76 }}>
-        Elegí una estación. Cada estación hace una sola cosa.
-      </div>
-
-      <ProduceHeroRow>
-        <ProducePill tone={activeCajero ? "ok" : "warn"}>
-          {activeCajero ? "caja activa" : "sin turno"}
-        </ProducePill>
-        <ProducePill tone="neutral">trabajos</ProducePill>
-        <ProducePill tone="neutral">conversaciones</ProducePill>
-        <ProducePill tone="neutral">pedidos</ProducePill>
-        <ProducePill tone="neutral">publicar</ProducePill>
-      </ProduceHeroRow>
-    </ProduceHero>
 
     <ProduceModeBar>
       <ProduceModeBtn
         active={produceView === "trabajos"}
-        onClick={() => setProduceView("trabajos")}
+        onClick={() => { setProduceView("trabajos"); navigate("/market?tab=mis_pedidos&section=trabajos"); }}
       >
         <ProduceModeIcon>🧰</ProduceModeIcon>
         <ProduceModeTitle>Trabajos</ProduceModeTitle>
@@ -3722,16 +4735,16 @@ console.log("ENRICHED OFFER", {
 
       <ProduceModeBtn
         active={produceView === "conversaciones"}
-        onClick={() => setProduceView("conversaciones")}
+        onClick={() => { setProduceView("conversaciones"); navigate("/market?tab=mis_pedidos&section=conversaciones"); }}
       >
         <ProduceModeIcon>💬</ProduceModeIcon>
-        <ProduceModeTitle>Inbox</ProduceModeTitle>
+        <ProduceModeTitle>Conversaciones</ProduceModeTitle>
         <ProduceModeSub>Hablar por hilo vivo</ProduceModeSub>
       </ProduceModeBtn>
 
       <ProduceModeBtn
         active={produceView === "pedidos"}
-        onClick={() => setProduceView("pedidos")}
+        onClick={() => { setProduceView("pedidos"); navigate("/market?tab=mis_pedidos&section=pedidos"); }}
       >
         <ProduceModeIcon>📦</ProduceModeIcon>
         <ProduceModeTitle>Pedidos</ProduceModeTitle>
@@ -3740,7 +4753,7 @@ console.log("ENRICHED OFFER", {
 
       <ProduceModeBtn
         active={produceView === "publicar"}
-        onClick={() => setProduceView("publicar")}
+        onClick={() => { setProduceView("publicar"); navigate("/market?tab=mis_pedidos&section=publicar"); }}
       >
         <ProduceModeIcon>✨</ProduceModeIcon>
         <ProduceModeTitle>Publicar</ProduceModeTitle>
@@ -3749,7 +4762,7 @@ console.log("ENRICHED OFFER", {
 
       <ProduceModeBtn
         active={produceView === "caja"}
-        onClick={() => setProduceView("caja")}
+        onClick={() => { setProduceView("caja"); navigate("/market?tab=mis_pedidos&section=caja"); }}
       >
         <ProduceModeIcon>👤</ProduceModeIcon>
         <ProduceModeTitle>Caja</ProduceModeTitle>
@@ -3765,18 +4778,18 @@ console.log("ENRICHED OFFER", {
           <ProduceCard>
             <ProduceBlock>
               <ProduceBlockHead>
-                <ProduceBlockTitle>🧰 Trabajos abiertos</ProduceBlockTitle>
+                <ProduceBlockTitle>🧰 Trabajos · Para vos</ProduceBlockTitle>
               </ProduceBlockHead>
               <ProduceBlockSub>
-                Acá entran work.intent, producción, materiales y packs.
+                Oportunidades que tu nodo puede ver; solo puede tomar las compatibles con sus capacidades.
               </ProduceBlockSub>
               <ProduceDivider />
 
               <WorkInboxPanel
                 allLive={allLiveClean}
-                actorId={activeCajero?.id || null}
-                actorName={activeCajero?.nombre || null}
-                nodeId={activeCajero?.id || null}
+                actorId={identityContext?.actorId || null}
+                actorName={identityContext?.displayName || activeCajero?.nombre || null}
+                nodeId={identityContext?.actingAsNodeId || identityContext?.nodeId || null}
                 orgId={activeCajero?.orgId || null}
                 territoryId={activeCajero?.territorioId || null}
                 onOpenThread={(threadId) => openProductionThread(threadId)}
@@ -3792,18 +4805,24 @@ console.log("ENRICHED OFFER", {
                 <ProduceBlockTitle>📚 Cola productiva</ProduceBlockTitle>
               </ProduceBlockHead>
               <ProduceBlockSub>
-                Vista simple de lo abierto, planeado o en curso.
+                Trabajos que ya aceptaste, ordenados por su estado real.
               </ProduceBlockSub>
               <ProduceDivider />
 
-              <ProducerQueuePanel
+              <Suspense fallback={<p>Abriendo tu cola de trabajo…</p>}><ProductionQueueWorkspace
                 allLive={allLiveClean}
-                actorId={activeCajero?.id || null}
-                actorName={activeCajero?.nombre || null}
-                nodeId={activeCajero?.id || null}
+                preferredNodeId={identityContext?.actingAsNodeId || identityContext?.nodeId || null}
+                onOpenThread={openProductionThread}
+                legacyQueue={<ProducerQueuePanel
+                allLive={allLiveClean}
+                actorId={identityContext?.actorId || null}
+                actorName={identityContext?.displayName || null}
+                nodeId={identityContext?.actingAsNodeId || identityContext?.nodeId || null}
                 orgId={activeCajero?.orgId || null}
                 territoryId={activeCajero?.territorioId || null}
-              />
+                hideOpen
+                onOpenThread={(threadId) => openProductionThread(threadId)}
+              />}/></Suspense>
             </ProduceBlock>
           </ProduceCard>
 
@@ -3813,7 +4832,7 @@ console.log("ENRICHED OFFER", {
                 <ProduceBlockTitle>🛰️ Radar de fábrica</ProduceBlockTitle>
               </ProduceBlockHead>
               <ProduceBlockSub>
-                Demandas y materiales agrupados para responder rápido.
+                Necesidades relacionadas agrupadas para descubrir dónde podés ayudar.
               </ProduceBlockSub>
               <ProduceDivider />
 
@@ -3863,10 +4882,11 @@ console.log("ENRICHED OFFER", {
 />
           ) : (
             <EmptySoftBox>
-              <div style={{ fontWeight: 950 }}>Elegí un trabajo primero 🧰</div>
+              <div style={{ fontWeight: 950 }}>Tus conversaciones, en un solo lugar</div>
               <div style={{ opacity: 0.72, fontSize: "0.9rem" }}>
-                Abrí un trabajo desde la sección Trabajos y acá aparecerá su conversación.
+                Podés abrir un trabajo para ver su hilo o entrar a todas tus conversaciones.
               </div>
+              <button type="button" className="mt-3 min-h-11 rounded-full border bg-white px-5 font-bold" onClick={() => setConversationsOpen(true)}>Abrir conversaciones</button>
             </EmptySoftBox>
           )}
         </ProduceBlock>
@@ -3884,10 +4904,10 @@ console.log("ENRICHED OFFER", {
           </ProduceBlockSub>
           <ProduceDivider />
 
-          <CajeroPedidosPanel
+          {!activeCajero ? <EmptySoftBox><b>¿Son tus compras o pedidos que recibís?</b><p>Las compras están en Mis pedidos. Para atender ventas, elegí una caja de tu Nodo.</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" className="min-h-11 rounded-full bg-slate-950 px-4 font-bold text-white" onClick={() => selectMainTab("mis_pedidos")}>Mis compras</button><button type="button" className="min-h-11 rounded-full border bg-white px-4 font-bold" onClick={() => setProduceView("caja")}>Elegir caja para atender</button></div></EmptySoftBox> : <CajeroPedidosPanel
             activeCajero={activeCajero}
             onOpenThread={(threadId) => openProductionThread(threadId)}
-          />
+          />}
         </ProduceBlock>
       </ProduceCard>
     )}
@@ -3896,14 +4916,15 @@ console.log("ENRICHED OFFER", {
       <ProduceCard>
         <ProduceBlock>
           <ProduceBlockHead>
-            <ProduceBlockTitle>✨ Publicar en MT</ProduceBlockTitle>
+            <ProduceBlockTitle>✨ Crear una publicación</ProduceBlockTitle>
           </ProduceBlockHead>
           <ProduceBlockSub>
             Producto, oferta, demanda o producción.
           </ProduceBlockSub>
           <ProduceDivider />
 
-          <ProducirPanel currentCajero={activeCajero} />
+          <Suspense fallback={<p>Abriendo creación…</p>}><LiveNetworkPanel allLive={allLive} activeActor={localBuyerActor} initialView="publish" minimalEmbed onOpenThread={openThreadGlobal}/></Suspense>
+          <details className="utopy-ui mt-4"><summary className="utopy-button">Publicación técnica y producción avanzada</summary><ProducirPanel currentCajero={activeCajero} /></details>
         </ProduceBlock>
       </ProduceCard>
     )}
@@ -3920,6 +4941,7 @@ console.log("ENRICHED OFFER", {
                 Elegí quién está operando producción y cobros.
               </ProduceBlockSub>
               <ProduceDivider />
+              <div className="mb-4 grid gap-2"><button type="button" className="min-h-11 rounded-2xl border bg-white px-4 text-left font-bold" onClick={() => { setOperationalPanelSection("overview"); setOperationalPanelOpen(true); }}>Administrar mi Nodo y permisos</button><button type="button" className="min-h-11 rounded-2xl border bg-white px-4 text-left font-bold" onClick={() => { setOperationalPanelSection("automations"); setOperationalPanelOpen(true); }}>Automatizaciones del Nodo</button><p className="text-xs text-slate-500">Elegí un Nodo autorizado para ver sus módulos, Pass y automatizaciones.</p></div>
 
               <CajerosPanel
                 cajeros={cajeros}
@@ -3968,7 +4990,7 @@ console.log("ENRICHED OFFER", {
         key={`caja-thread:${inboxThreadId || "general"}`}
         mode="all"
         activeCajero={activeCajero}
-        title={inboxThreadId ? "Hilo del pedido" : "Inbox operativo"}
+        title={inboxThreadId ? "Conversación del pedido" : "Conversaciones"}
         initialThreadId={inboxThreadId}
         focusThreadOnly={!!inboxThreadId}
         simple
@@ -3989,7 +5011,7 @@ console.log("ENRICHED OFFER", {
 
         <ProduceDivider />
 
-        <CajeroAuthPanel activeCajero={activeCajero} />
+        <CajeroAuthPanel activeCajero={activeCajero} allLive={allLive} />
       </ProduceBlock>
     </ProduceCard>
   ) : (
@@ -4006,7 +5028,7 @@ console.log("ENRICHED OFFER", {
     )}
   </Section>
 )}
-{tab === "mis_pedidos" && (
+{surfaceTab === "mis_pedidos" && !activityOperational && (
   <Section>
     <div style={{ display: "grid", gap: 12 }}>
      <BuyerOrdersPanel
@@ -4027,86 +5049,39 @@ console.log("ENRICHED OFFER", {
 )}
       </Content>
 {/* ✅ Bottom nav (mobile/tablet) */}
+{operationalPanelOpen ? <Suspense fallback={null}><NodeOperationPanel open allLive={allLive} activeActor={localBuyerActor} initialSection={operationalPanelSection} onClose={() => setOperationalPanelOpen(false)} /></Suspense> : null}
+{/* ✅ Bottom nav glass minimalista */}
 <BottomNav>
   <BottomInner>
-    <NavHoldWrap>
-      <NavMoreBubble open={mobileMarketMenuOpen}>
-        <NavMoreBtn
-          onClick={() => {
-            setTab("categorias");
-            setMobileMarketMenuOpen(false);
-          }}
-        >
-          <NavMoreIcon>🗂️</NavMoreIcon>
-          <NavMoreText>
-            <NavMoreTitle>Categorías</NavMoreTitle>
-            <NavMoreSub>Explorar por tipo</NavMoreSub>
-          </NavMoreText>
-        </NavMoreBtn>
-      </NavMoreBubble>
-
-      <NavBtn
-        active={tab === "mercado" || tab === "categorias"}
-        onClick={handleMarketMobileClick}
-        onMouseDown={startMarketLongPress}
-        onMouseUp={endMarketLongPress}
-        onMouseLeave={endMarketLongPress}
-        onTouchStart={startMarketLongPress}
-        onTouchEnd={endMarketLongPress}
-        onTouchCancel={endMarketLongPress}
-        aria-label="Mercado. Mantener presionado para categorías"
-        title="Mantener presionado para Categorías"
-      >
-        <NavHoldHint>＋</NavHoldHint>
-        <NavIcon>{tab === "categorias" ? "🗂️" : "🏪"}</NavIcon>
-        {tab === "categorias" ? "Categorías" : "Mercado"}
-      </NavBtn>
-    </NavHoldWrap>
-
     <NavBtn
-      active={tab === "circular"}
-      onClick={() => {
-        setMobileMarketMenuOpen(false);
-        setTab("circular");
-      }}
+      active={tab === "mercado"}
+      onClick={() => selectMainTab("mercado")}
+      aria-label="Inicio"
     >
-      <NavIcon>♻️</NavIcon>
-      <div>Circular</div>
+      <NavIcon><Home /></NavIcon><span>Inicio</span>
     </NavBtn>
-
     <NavBtn
-      active={tab === "ofertas"}
-      onClick={() => {
-        setMobileMarketMenuOpen(false);
-        setTab("ofertas");
-      }}
+      active={tab === "categorias" || tab === "ofertas"}
+      onClick={() => territoryMode?selectMainTab("mercado"):openLivingSpace("map")}
+      aria-label={territoryMode?'Descubrir posibilidades':'Explorar'}
     >
-      <NavIcon>📣</NavIcon>
-      Ofertas
+      <NavIcon><Compass /></NavIcon><span>Explorar</span>
     </NavBtn>
-
-    {/* ✅ Producir SOLO ICONO en mobile (sin label) */}
     <NavBtn
-      active={tab === "producir"}
-      onClick={() => {
-        setMobileMarketMenuOpen(false);
-        setTab("producir");
-      }}
+      active={tab === "crear"}
+      onClick={() => selectMainTab("producir")}
+      aria-label="Crear"
     >
-      <NavIcon>➕</NavIcon>
-      <ProducirLabel>Producir</ProducirLabel>
+      <NavIcon><CirclePlus /></NavIcon><span>Crear</span>
     </NavBtn>
-
     <NavBtn
       active={tab === "mis_pedidos"}
-      onClick={() => {
-        setMobileMarketMenuOpen(false);
-        setTab("mis_pedidos");
-      }}
+      onClick={() => selectMainTab("mis_pedidos")}
+      aria-label="Actividad"
     >
-      <NavIcon>📦</NavIcon>
-      <div>Pedidos</div>
+      <NavIcon><Activity /></NavIcon><span>Actividad</span>
     </NavBtn>
+    <NavBtn active={profileQuickOpen} onClick={() => setProfileQuickOpen(true)} aria-label="Mi identidad UTOPY"><NavIcon><UserRound/></NavIcon><span>Perfil</span></NavBtn>
   </BottomInner>
 </BottomNav>
       {/* Carrito */}
@@ -4128,8 +5103,9 @@ console.log("ENRICHED OFFER", {
 <PublicProductOfferModal
   product={publicProduct}
   offer={publicOffer}
-  products={products}
+  products={routeProducts as MtProduct[]}
   onClose={() => {
+    const productOrigin = publicProduct ? readProductOrigin(publicProduct, routeProducts, true) : null;
     setPublicProduct(null);
     setPublicOffer(null);
 
@@ -4139,20 +5115,30 @@ console.log("ENRICHED OFFER", {
       location.pathname.startsWith("/market/producto/") ||
       location.pathname.startsWith("/market/oferta/")
     ) {
-      navigate("/market", { replace: true });
+      navigate(productOrigin?.route || "/market", { replace: true });
+      if (productOrigin) window.requestAnimationFrame(() => window.scrollTo({ top: productOrigin.scrollY, behavior: "instant" as ScrollBehavior }));
     }
   }}
   onShare={() => {
     const path = publicOffer
       ? offerPath(publicOffer.id)
       : publicProduct
-      ? productPath(publicProduct.id)
+      ? productPath(publicProduct, routeProducts)
       : "/market";
 
     sharePublicLink(path, publicOffer ? getOfferTitle(publicOffer) : publicProduct?.nombre);
   }}
-  onCheckoutProduct={(p) => {
+  onConsultProduct={async (p) => {
     setPublicProduct(null);
+    setPublicOffer(null);
+    await solicitarPorUtopy(p);
+  }}
+  onFabricateProduct={async (p) => {
+    setPublicProduct(null);
+    setPublicOffer(null);
+    await solicitarFabricacion(p);
+  }}
+  onCheckoutProduct={(p) => {
     setPublicOffer(null);
     abrirCheckout(p);
   }}
@@ -4176,35 +5162,40 @@ console.log("ENRICHED OFFER", {
   }}
 />
   {checkoutProd && (
+  <Suspense fallback={null}>
   <CheckoutModal
   open={checkoutOpen}
   product={checkoutProd}
   activeCajero={activeCajero}
   onNeedCajero={() => setCajeroPickerOpen(true)}
+  onOpenMap={(context) => {
+    const returnTo = `${location.pathname}${location.search}${location.hash}`;
+    try { window.sessionStorage.setItem("utopy.circular.purchaseContext", JSON.stringify({ context, returnTo, ts: Date.now() })); } catch {}
+    setCircularPurchaseContext(context);
+    setCheckoutOpen(false);
+    openCircular("mapa", returnTo);
+  }}
   onClose={() => {
   setCheckoutOpen(false);
-
-  if (
-    location.pathname.startsWith("/producto/") ||
-    location.pathname.startsWith("/oferta/")
-  ) {
-    navigate("/", { replace: true });
-  }
+  setCheckoutProd(null);
 }}
- onDone={async (payload) => {
+onDone={async (payload) => {
   setCheckoutOpen(false);
+  setCheckoutProd(null);
 
   if (payload?.threadId) {
     setInboxThreadId(payload.threadId);
   }
 
   if (payload?.orderId) {
-    await ensureOrderVisibleForCajero(payload);
-    setLastCheckoutDocs(payload);
-    setInvoiceCenterOpen(true);
+    if (payload?.receiptId || payload?.invoiceId) {
+      setLastCheckoutDocs(payload);
+      setInvoiceCenterOpen(true);
+    }
   }
 }}
 />
+  </Suspense>
 )}
 <InvoiceCenter
   open={invoiceCenterOpen}
@@ -4247,13 +5238,15 @@ console.log("ENRICHED OFFER", {
         product={arProduct}
         onClose={() => setArOpen(false)}
       />
-      <NotificationSelectorModal
-  open={notifModalOpen}
-  namespaces={namespaces}
-  onClose={() => setNotifModalOpen(false)}
-  onStateChange={({ enabled, selectedNs }) => {
-    setNotifyEnabled(enabled);
-    setNotifyNs(selectedNs);
+      <FrequencyVivaModal
+  open={frequencyOpen}
+  allLive={allLive}
+  activeActor={localBuyerActor}
+  onClose={() => setFrequencyOpen(false)}
+  onStateChange={({ enabled, mode, hasActiveFrequency }) => {
+    setFrequencyEnabled(enabled);
+    setFrequencyMode(mode);
+    setFrequencyHasActive(hasActiveFrequency);
   }}
 />
 {threadViewerOpen && (
@@ -4306,6 +5299,119 @@ console.log("ENRICHED OFFER", {
     </PickerBackdrop>
   </Portal>
 )}
+{kioskConsult && (
+  <Portal>
+    <PickerBackdrop onClick={() => setKioskConsult(null)}>
+      <CheckoutModalBox
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          maxWidth: 520,
+          textAlign: "center",
+        }}
+      >
+        <div style={{ fontWeight: 950, fontSize: "1.15rem" }}>
+          Consulta enviada al nodo ✅
+        </div>
+
+        <Subtle style={{ marginTop: 6 }}>
+          Producto: {kioskConsult.title}
+        </Subtle>
+        {kioskConsult.imageUrl ? (
+  <img
+    src={kioskConsult.imageUrl}
+    alt={kioskConsult.title}
+    style={{
+      width: "100%",
+      maxWidth: 280,
+      aspectRatio: "1 / 1",
+      objectFit: "cover",
+      borderRadius: 18,
+      margin: "16px auto 0",
+      display: "block",
+      background: "#f2f2f2",
+      border: "1px solid rgba(0,0,0,0.08)",
+    }}
+  />
+) : null}
+
+        <div style={{ marginTop: 12, fontWeight: 900 }}>
+          Vendedor: {kioskConsult.seller}
+        </div>
+
+        <div
+          style={{
+            margin: "18px auto 0",
+            width: 260,
+            maxWidth: "100%",
+            background: "#fff",
+            border: "1px solid rgba(0,0,0,0.08)",
+            borderRadius: 18,
+            padding: 12,
+          }}
+        >
+          <img
+            src={`https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(
+              kioskConsult.whatsappUrl
+            )}`}
+            alt="QR WhatsApp"
+            style={{
+              width: "100%",
+              aspectRatio: "1 / 1",
+              objectFit: "contain",
+            }}
+          />
+        </div>
+
+        <Subtle style={{ marginTop: 12 }}>
+          Escaneá este QR con tu celular para continuar por WhatsApp.
+          El tótem no sale de la experiencia.
+        </Subtle>
+
+        <div style={{ display: "grid", gap: 8, marginTop: 16 }}>
+          <SmallBtn onClick={() => setKioskConsult(null)}>
+            Volver al catálogo
+          </SmallBtn>
+        </div>
+      </CheckoutModalBox>
+    </PickerBackdrop>
+  </Portal>
+)}
+      <LivingProfileQuickView
+        open={profileQuickOpen}
+        initialSpace={profileInitialSpace}
+        allLive={allLive}
+        activeActor={localBuyerActor}
+        target={myLiveProfile || identityContext || localBuyerActor}
+        own
+        onClose={() => {setProfileQuickOpen(false);setProfileInitialSpace('home');}}
+        onSay={() => { setProfileQuickOpen(false); navigate("/market/mapa?view=publicar"); }}
+        onEdit={() => { setProfileQuickOpen(false); navigate("/market?tab=circular&view=red&quick=profile"); }}
+        onConversations={() => { setProfileQuickOpen(false); setConversationsOpen(true); }}
+        onMap={() => { setProfileQuickOpen(false); navigate(`/market?tab=circular&view=mapa&focus=${encodeURIComponent(String(myLiveProfile?.id || localBuyerActor?.id || ""))}`); }}
+        onFull={() => { const identity = myLiveProfile || identityContext || localBuyerActor; const handle = myLiveProfile?.handle || profileHandleForIdentity(identity, identityContext?.displayName || localBuyerActor?.name || "mi-perfil"); setProfileQuickOpen(false); navigate(`/${handle}`, { state: { returnTo: `${location.pathname}${location.search}${location.hash}`, scrollY: window.scrollY } }); }}
+      />
+      {conversationsOpen ? <GlobalConversationsModal open onClose={() => setConversationsOpen(false)} from="market" returnTo={`${location.pathname}${location.search}${location.hash}`} onOpenProfile={openMyLiveProfile} /> : null}
+      <LiveSearchOverlay
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        allLive={allLive}
+        surface="market"
+        initialQuery={networkSearchQuery}
+        onSelect={(dv, kind) => {
+          const id = encodeURIComponent(String(dv?.id || ""));
+          if (kind === "profile") {
+            navigate(`/${dv?.attrs?.handle}`);
+          } else if (kind === "product") {
+            const product = routeProducts.find((item) => String((item as any).id) === String(dv?.id)) as MtProduct | undefined;
+            if (product) { setPublicProduct(product); setPublicOffer(null); }
+            navigate(productPath(product || dv, routeProducts));
+          } else if (kind === "property") {
+            navigate("/falcon/skylines");
+          } else {
+            setTab("circular");
+          }
+        }}
+      />
     </Page>
   );
 }

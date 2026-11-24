@@ -1,4 +1,6 @@
-@import "tailwindcss";
+/* Scan application sources only, never generated deployment archives. */
+@import "tailwindcss" source("./");
+@source "../index.html";
 
 html,
 body,

@@ -46,6 +46,12 @@ export interface Contrato {
   lecturaMedidores?: string;
   inventario?: string;
   clausulasAdicionales?: string;
+  regimenMora?: string;
+  condicionesGarantia?: string;
+  preaviso?: string;
+  jurisdiccion?: string;
+  obligacionesLocador?: string;
+  obligacionesLocatario?: string;
 }
 
 /** Firmas opcionales (si las cargás desde tu UI) */
@@ -193,6 +199,10 @@ export function buildContractText(input: Draft): string {
     lecturaMedidores: safeStr(input.contrato?.lecturaMedidores),
     inventario: safeStr(input.contrato?.inventario),
     clausulasAdicionales: safeStr(input.contrato?.clausulasAdicionales),
+    regimenMora:safeStr(input.contrato?.regimenMora),
+    condicionesGarantia:safeStr(input.contrato?.condicionesGarantia),
+    preaviso:safeStr(input.contrato?.preaviso),
+    jurisdiccion:safeStr(input.contrato?.jurisdiccion),
   };
 
   const hoy = todayPY();
@@ -240,12 +250,12 @@ export function buildContractText(input: Draft): string {
 
   t += `TERCERA — Canon, vencimiento y mora: El canon es de ${canonFmt} mensuales, pagaderos hasta el día ${String(
     contrato.diaVencimiento
-  )} de cada mes. En caso de mora, devengará un recargo equivalente al 5% mensual del canon, prorrateado por día de atraso.\n\n`;
+  )} de cada mes. Régimen de mora: ${safeStr(contrato.regimenMora, "se aplicará únicamente lo expresamente acordado por las partes y permitido por la normativa aplicable")}.\n\n`;
 
   t += `CUARTA — Garantía: ${garantiaFmt}. `;
   if (garantiaNum > 0) {
     t +=
-      "La garantía podrá aplicarse únicamente para cubrir daños, faltantes, deterioro por mal uso, limpieza extraordinaria o incumplimientos comprobados al momento de la entrega. " +
+      `${safeStr(contrato.condicionesGarantia, "La garantía podrá aplicarse únicamente para cubrir daños, faltantes, deterioro por mal uso, limpieza extraordinaria o incumplimientos comprobados al momento de la entrega.")} ` +
       "Si la entrega final se realiza en orden, el LOCADOR no exigirá cobro alguno por este concepto.\n\n";
   } else {
     t += "El LOCADOR renuncia expresamente a exigir depósito o garantía.\n\n";
@@ -258,22 +268,23 @@ export function buildContractText(input: Draft): string {
   if (contrato.inventario) t += `OCTAVA — Inventario de entrega: ${contrato.inventario}.\n\n`;
 
   t +=
-    "NOVENA — Obligaciones y uso: El LOCATARIO se obliga a usar el inmueble con diligencia, mantenerlo limpio y en buen estado, " +
-    "no introducir modificaciones sin autorización escrita, y restituirlo en condiciones normales de uso. Los daños ocasionados por mal uso serán a su exclusivo cargo.\n\n";
+    `NOVENA — Reparaciones y mantenimiento: Serán de cargo del LOCATARIO los daños comprobablemente atribuibles a mal uso, negligencia, convivientes, invitados, pérdida de llaves, daños en cerraduras, vidrios, muebles, equipamiento, obstrucciones por uso incorrecto o modificaciones no autorizadas. El desgaste normal, los defectos preexistentes y las reparaciones estructurales no imputables al LOCATARIO no se considerarán daño suyo. La atribución podrá documentarse con fotografías, observaciones e inventarios inicial y final.\n\n`;
+
+  t += `DÉCIMA — Obligaciones del LOCATARIO: ${safeStr(contrato.obligacionesLocatario, "uso diligente, conservación, limpieza, destino convenido, convivencia, comunicación de averías, prohibición de actividades ilícitas y modificaciones no autorizadas, restitución de llaves e inmueble y responsabilidad por daños atribuibles")}.\n\n`;
+
+  t += `DÉCIMA PRIMERA — Obligaciones del LOCADOR: ${safeStr(contrato.obligacionesLocador, "entregar la unidad, respetar el uso convenido, recibir comunicaciones, reconocer pagos, atender las reparaciones que no correspondan al LOCATARIO y devolver la garantía cuando proceda")}.\n\n`;
 
   t +=
-    "DÉCIMA — Resolución por incumplimiento: Ante incumplimientos graves o falta de pago reiterada, el LOCADOR podrá resolver el contrato conforme a derecho.\n\n";
+    "DÉCIMA SEGUNDA — Incumplimiento: La falta de pago, el uso indebido, los daños atribuibles o el incumplimiento grave de las condiciones pactadas permitirán ejercer los derechos de resolución conforme al contrato y al marco jurídico aplicable.\n\n";
 
   t +=
-    "DÉCIMA PRIMERA — Rescisión anticipada (sin penalidad): El LOCATARIO podrá rescindir el contrato en cualquier momento, sin multa ni penalidad, " +
-    "siempre que: (i) notifique al LOCADOR con una antelación mínima de treinta (30) días; (ii) se encuentre al día en el pago del canon y servicios hasta la fecha efectiva de salida; " +
-    "(iii) entregue el inmueble limpio, en buen estado, con devolución de llaves y conforme inventario, dejando constancia de entrega.\n\n";
+    `DÉCIMA TERCERA — Rescisión y terminación: El preaviso será ${safeStr(contrato.preaviso, "el acordado por las partes antes de la firma")}. Al finalizar deberán regularizarse obligaciones pendientes, documentarse el estado final y el inventario, y restituirse inmueble y llaves.\n\n`;
 
   if (contrato.clausulasAdicionales) {
-    t += `DÉCIMA SEGUNDA — Cláusulas adicionales: ${contrato.clausulasAdicionales}\n\n`;
+    t += `DÉCIMA CUARTA — Cláusulas adicionales: ${contrato.clausulasAdicionales}\n\n`;
   }
 
-  t += `JURISDICCIÓN: Las partes se someten a los tribunales competentes de ${inmueble.ciudad}.\n`;
+  t += `JURISDICCIÓN: Las partes se someten a los tribunales competentes de ${safeStr(contrato.jurisdiccion, inmueble.ciudad)}.\n`;
 
   return t;
 }
@@ -368,6 +379,10 @@ export function buildDraftFromInputs(params: {
     lecturaMedidores: safeStr(params.contrato?.lecturaMedidores),
     inventario: safeStr(params.contrato?.inventario),
     clausulasAdicionales: safeStr(params.contrato?.clausulasAdicionales),
+    regimenMora:safeStr(params.contrato?.regimenMora),
+    condicionesGarantia:safeStr(params.contrato?.condicionesGarantia),
+    preaviso:safeStr(params.contrato?.preaviso),
+    jurisdiccion:safeStr(params.contrato?.jurisdiccion),
   };
 
   if (!c.fin && c.inicio && c.plazoMeses) c.fin = calcFin(c.inicio, c.plazoMeses);
@@ -630,7 +645,7 @@ function buildPagareText(draft: Draft): string {
 /* =========================
    Generar y descargar PDF
    ========================= */
-export async function generateContractPDFFromDraftWithQR(draft: Draft): Promise<void> {
+export async function generateContractPDFFromDraftWithQR(draft: Draft, secureShareLink?: string): Promise<{blob:Blob;fileName:string}> {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
 
   // Contrato
@@ -639,7 +654,9 @@ export async function generateContractPDFFromDraftWithQR(draft: Draft): Promise<
   writeBody(doc, body, "CONTRATO DE LOCACIÓN");
 
   // Link + QR (borrador guardado)
-  const shareLink = buildShareLink(draft);
+  // Los contratos nuevos reciben una capacidad temporal opaca. El fallback
+  // conserva compatibilidad con documentos históricos ya generados.
+  const shareLink = secureShareLink || buildShareLink(draft);
 
   // Página aparte: QR + firmas
   await addQRAndSignPage(doc, draft, shareLink);
@@ -667,4 +684,5 @@ if (draft.pagare?.enabled) {
     ".pdf";
 
   doc.save(fName);
+  return {blob:doc.output('blob'),fileName:fName};
 }

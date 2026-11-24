@@ -2,6 +2,7 @@
 import React, { useMemo } from "react";
 import styled from "styled-components";
 import { mtLiveSubscribe } from "./mt.liveStore";
+import CommercialDocumentPanel from "../fiscal/CommercialDocumentPanel";
 
 type InvoiceCenterProps = {
   open: boolean;
@@ -164,7 +165,7 @@ export default function InvoiceCenter({
       <Box onClick={(e) => e.stopPropagation()}>
         <Header>
           <div>
-            <Title>Factura / comprobante</Title>
+            <Title>Documentos / comprobantes</Title>
             <Subtle>Pedido: {orderId || "—"}</Subtle>
           </div>
 
@@ -188,6 +189,7 @@ export default function InvoiceCenter({
         </Header>
 
         <Body>
+          {invoice || receipt ? <CommercialDocumentPanel key={(invoice || receipt).id} source={invoice || receipt} /> : null}
           {!receipt && !invoice ? (
             <Card>
               <Title>Sin documentos todavía</Title>
@@ -234,7 +236,7 @@ export default function InvoiceCenter({
 
           {invoice ? (
             <Card>
-              <Title>Factura borrador</Title>
+              <Title>Borrador de documento · no fiscal</Title>
 
               <Grid>
                 <div>

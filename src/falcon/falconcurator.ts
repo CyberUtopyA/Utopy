@@ -285,6 +285,23 @@ export function scoreMtRaw(raw: any) {
   return score;
 }
 
+function storeCategory(raw: any): string {
+  const category = safeText(
+    raw?.attrs?.categoria,
+    raw?.attrs?.category,
+    raw?.attrs?.market?.category,
+    "producto",
+  );
+  const normalized = category.toLowerCase();
+  if (/aro|anillo|pulsera|tobillera|collar|cadena|joya|accesorio|reloj|bolso|cartera/.test(normalized)) {
+    return "accesorios";
+  }
+  if (/ropa|moda|prenda|camisa|remera|vestido|pantal[oó]n|calzado|zapato/.test(normalized)) {
+    return "ropa";
+  }
+  return category;
+}
+
 export function toCanonicalFalconItem(
   raw: any,
   targetNamespaces: string[]
@@ -413,12 +430,7 @@ export function toCanonicalFalconItem(
     cover,
     price,
     currency,
-    category: safeText(
-      raw?.attrs?.categoria,
-      raw?.attrs?.category,
-      raw?.attrs?.market?.category,
-      rootKind
-    ),
+    category: storeCategory(raw),
     tags,
     ns: getNs(raw),
     scopes: getScopes(raw),

@@ -1,0 +1,62 @@
+{
+  "id": "utopy.node.manifest:utopy.node.ejemplo",
+  "kind": "utopy.node.manifest",
+  "attrs": {
+    "node": {
+      "id": "utopy.node.ejemplo",
+      "name": "Nodo Ejemplo"
+    },
+    "nodeId": "utopy.node.ejemplo",
+    "nodeName": "Nodo Ejemplo",
+    "storeId": "ejemplo",
+    "authority": "utopy.node.ejemplo",
+    "baseUrl": "https://ejemplo.test",
+    "endpoints": {
+      "manifest": "https://ejemplo.test/api/catalog-live.php",
+      "catalog": "https://ejemplo.test/api/catalog-live.php",
+      "loyalty": "https://ejemplo.test/api/loyalty.php"
+    },
+    "surfaces": ["market", "profile"],
+    "discovery": {
+      "protocol": "utopy.node.manifest@2",
+      "mode": "self-announced",
+      "heartbeatMs": 30000,
+      "expiresAt": "2026-08-01T03:00:00.000Z"
+    },
+    "capabilities": [
+      {
+        "id": "catalog.offer",
+        "domains": ["catalog", "commerce"],
+        "accepts": ["product.requested"],
+        "produces": ["catalog.offer"],
+        "surfaces": ["market"]
+      },
+      {
+        "id": "loyalty.progress",
+        "domains": ["loyalty"],
+        "accepts": ["commerce.purchase.completed"],
+        "produces": ["loyalty.progress"],
+        "surfaces": ["profile"]
+      }
+    ]
+  },
+  "traits": [
+    "sem.dv.read",
+    "utopy:node:manifest",
+    "utopy:node:self-announced",
+    "mt:catalog.source",
+    "resonance:capable"
+  ],
+  "meta": {
+    "ns": "utopy:nodes",
+    "ts": "2026-08-01T02:58:30.000Z",
+    "updatedAt": "2026-08-01T02:58:30.000Z",
+    "version": 1785553110000,
+    "ttl_ms": 90000,
+    "scopes": ["public"],
+    "originNode": "utopy.node.ejemplo",
+    "authority": "utopy.node.ejemplo",
+    "portable": true,
+    "schema": "utopy.node.manifest@2"
+  }
+}

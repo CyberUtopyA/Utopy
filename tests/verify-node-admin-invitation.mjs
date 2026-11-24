@@ -1,0 +1,37 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {createServer,transformWithEsbuild} from 'vite';
+const vite=await createServer({configFile:false,cacheDir:'node_modules/.vite-admin-test',optimizeDeps:{noDiscovery:true,include:[]},server:{middlewareMode:true},appType:'custom',logLevel:'silent'});
+try{
+ const admin=await vite.ssrLoadModule('/src/utopy/nodeAdminInvitation.ts');
+ const identity=await vite.ssrLoadModule('/src/utopy/identityContext.ts');
+ const publish=await vite.ssrLoadModule('/src/utopy/authorizedPublish.ts');
+ const onboarding=await vite.ssrLoadModule('/src/utopy/nodeOwnerOnboarding.ts');
+ const workspace=await vite.ssrLoadModule('/src/utopy/businessWorkspace.ts');
+ const second=await vite.ssrLoadModule('/src/utopy/ownership.ts?admin-recipient');
+ const owner=await identity.resolveCurrentIdentityContext({allLive:[]});
+ const recipient=await identity.deriveActorIdForOwnerDid((await second.getWalletStatus()).ownerDid);
+ const raw=onboarding.buildOwnerNodeManifest({name:'Signed test business',purpose:'Contract validation',configuration:null},'test-only');
+ const ownership=await vite.ssrLoadModule('/src/utopy/ownership.ts');
+ const manifest=await ownership.sealOwnedDV({...raw,attrs:{...raw.attrs,actorId:owner.actorId,issuerActorId:owner.actorId,actingAsNodeId:raw.attrs.nodeId},meta:{...raw.meta,issuer:owner.actorId}},owner.actorId);
+ const [entry]=await workspace.businessRegistry([manifest]);assert.ok(entry);
+ const invitation=(await publish.publishAuthorizedDV({dv:admin.buildAdminInvitation(entry,recipient,owner.actorId,new Date(Date.now()+30*86400000).toISOString()),allLive:[manifest],actingAsNodeId:entry.nodeId,requiredAuthority:entry.nodeId,action:'node.authorization',sensitivity:'sensitive',localOnly:true})).dv;
+ const bundle={schema:admin.ADMIN_INVITATION_SCHEMA,manifest,invitation};
+ const view=await admin.verifyAdminInvitation(bundle,recipient,owner.actorId);
+ assert.equal(view.nodeId,entry.nodeId);assert.equal(invitation.attrs.grantsAccess,false);
+ await assert.rejects(()=>admin.verifyAdminInvitation(bundle,owner.actorId));
+ await assert.rejects(()=>admin.verifyAdminInvitation(bundle,recipient,recipient));
+ await assert.rejects(()=>admin.verifyAdminInvitation(bundle,recipient,undefined,[],Date.now()+8*86400000));
+ const tampered=structuredClone(bundle);tampered.invitation.attrs.allowedActions.push('payment.transfer');
+ await assert.rejects(()=>admin.verifyAdminInvitation(tampered,recipient));
+ const ts=new Date().toISOString();
+ const acceptance=await second.sealOwnedDV({id:`node.admin.acceptance:${invitation.id}`,kind:'node.admin.acceptance',attrs:{nodeId:entry.nodeId,invitationId:invitation.id,invitationHash:view.invitationHash,recipientActorId:recipient,actorId:recipient,issuerActorId:recipient,allowedActions:[...admin.ADMIN_ACTIONS],validUntil:view.validUntil,accepted:true},meta:{ts,version:1,issuer:recipient,authority:recipient,scopes:['participants']}},recipient);
+ await admin.verifyAdminAcceptance({...bundle,acceptance});
+ const changed=structuredClone(acceptance);changed.attrs.accepted=false;
+ await assert.rejects(()=>admin.verifyAdminAcceptance({...bundle,acceptance:changed}));
+ await assert.rejects(()=>admin.activateAdminInvitation(entry,bundle,false));
+ await assert.rejects(()=>admin.acceptAdminInvitation(bundle,owner.actorId,false));
+ assert.deepEqual(admin.ADMIN_ACTIONS,['node.workspace.read','booking.manage','booking.configure']);
+ for(const file of ['src/utopy/nodeAdminInvitation.ts','src/components/NodeAdminDelegation.tsx','src/pages/BusinessWorkspace.tsx'])await transformWithEsbuild(readFileSync(file,'utf8'),file,{loader:'tsx'});
+ console.log('OK: independent recipient signature, invitation binding, expiry, sender confirmation, tamper rejection, consent gates and limited actions. Hosted synchronization and ownership transfer not certified.');
+}finally{await vite.close();}

@@ -5,6 +5,11 @@ import Portal from "../pages/ui/portal";
 import type { MtOffer, MtProduct } from "./mt.traitAdapter";
 import type { MtCajero } from "./mt.cajeroAdapter";
 import { mtLiveUpsert } from "./mt.liveStore";
+import {
+  buildLinkedWorkIntentDV,
+  buildThreadActionDV,
+  requestApproximateBrowserLocation,
+} from "../mt/mt.threadProtocol";
 
 type Mode =
   | "accept"
@@ -154,14 +159,6 @@ const Btn = styled.button<{ kind?: "solid" | "ghost" }>`
       : `background:#fff;color:#111;`}
 `;
 
-function newId(prefix = "dv:") {
-  return `${prefix}${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function nowIso() {
-  return new Date().toISOString();
-}
-
 function safeNum(v: any, fallback = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
@@ -189,6 +186,8 @@ function getLocalActor() {
   return created;
 }
 async function publishDV(dv: any) {
+  mtLiveUpsert(dv as any);
+
   const upsertEnvelope = {
     kind: "dv.upsert",
     dv,
@@ -218,68 +217,8 @@ async function publishDV(dv: any) {
   } catch (e) {
     console.warn("[MS] utopy.emit fail", e);
   }
-}
-function upsertDV(kind: string, attrs: Record<string, any>, extra?: Partial<any>) {
-  const dv = {
-    id: newId(`${kind}:`),
-    kind,
-    attrs,
-    traits: ["mt:intent", kind, ...(extra?.traits || [])],
-    meta: {
-      ns: "mt:market",
-      ts: nowIso(),
-      ttl_ms: 1000 * 60 * 60 * 24 * 7,
-      source: "ms:web",
-      ...(extra?.meta || {}),
-    },
-    ...extra,
-  };
 
-  mtLiveUpsert(dv as any);
   return dv;
-}
-
-function emitChatMessage(args: {
-  offer: MtOffer;
-  threadId: string;
-  fromActorId: string;
-  toActorId: string | null;
-  cajeroId?: string | null;
-  text: string;
-  actionKind: string;
-  responseToId?: string | null;
-  sellerId?: string | null;
-  sellerName?: string | null;
-  contact?: any;
-  vendor?: any;
-  source?: any;
-}) {
-  return upsertDV(
-    "trade.message",
-    {
-      threadId: args.threadId,
-      offerId: args.offer.id,
-      productoId: args.offer.productoId,
-      offerType: args.offer.tipo,
-      fromActorId: args.fromActorId,
-      toActorId: args.toActorId,
-      cajeroId: args.cajeroId || null,
-      sellerId: args.sellerId || args.toActorId || null,
-      sellerName: args.sellerName || null,
-      participants: [args.fromActorId, args.toActorId, args.cajeroId].filter(Boolean),
-      text: args.text,
-      actionKind: args.actionKind,
-      responseToId: args.responseToId || null,
-      status: "sent",
-      unreadBy: [args.toActorId, args.cajeroId].filter(Boolean),
-      contact: args.contact || null,
-      vendor: args.vendor || null,
-      source: args.source || null,
-    },
-    {
-      traits: ["mt:chat", "mt:thread", "mt:notify.cajero"],
-    }
-  );
 }
 
 type Props = {
@@ -425,6 +364,43 @@ export default function OfferActionModal({
     source: offerAny?.attrs?.source || offerAny?.source || null,
   };
 
+  const makeAction = (
+    kind: string,
+    text: string,
+    attrs: Record<string, any> = {},
+    traits: string[] = []
+  ) =>
+    buildThreadActionDV({
+      kind,
+      threadId: resolvedThreadId || threadId,
+      text,
+      fromActorId: String(actor.id),
+      fromActorName: actor.name || "Actor local",
+      toActorId: sellerId || null,
+      toActorName: sellerName || null,
+      participants: [actor.id, sellerId, cajeroId],
+      rootDvId: String(offerAny?.id || offer.id || "") || null,
+      attrs: {
+        ...baseContext,
+        ...attrs,
+      },
+      traits: ["mt:intent", ...traits],
+      meta: {
+        source: "ms:web:offer-action",
+      },
+    });
+
+  const publishAction = async (
+    kind: string,
+    text: string,
+    attrs: Record<string, any> = {},
+    traits: string[] = []
+  ) => {
+    const action = makeAction(kind, text, attrs, traits);
+    await publishDV(action);
+    return action;
+  };
+
   const closeOk = () => {
     setError("");
     onClose();
@@ -441,128 +417,36 @@ export default function OfferActionModal({
       setError("Escribe la consulta que quieres hacer.");
       return;
     }
-
-    const finalSellerId = String(resolvedSellerId || "").trim();
-    const finalSellerName = String(resolvedSellerName || "Diseñador / vendedor").trim();
-    const finalThreadId = String(resolvedThreadId || threadId || "").trim();
-
-    if (!finalSellerId) {
-      setError("Esta oferta no tiene diseñador/vendedor identificado todavía.");
+    if (!sellerId) {
+      setError("Esta oferta no tiene un nodo de destino identificado todavía.");
       return;
     }
-
-    if (!finalThreadId) {
+    if (!(resolvedThreadId || threadId)) {
       setError("No se pudo resolver el hilo de esta oferta.");
       return;
     }
 
-    const sourceSceneId =
-      offerAny?.attrs?.source?.sceneId ||
-      offerAny?.source?.sceneId ||
-      offerAny?.meta?.source?.sceneId ||
-      null;
-
-    const consultId = `mt.consult:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
-
-    const sharedContact = {
-      ...(offerAny?.attrs?.contact || offerAny?.contact || {}),
-      sellerId: finalSellerId,
-      sellerName: finalSellerName,
-      threadId: finalThreadId,
-    };
-
-    const sharedVendor = {
-      ...(offerAny?.attrs?.vendor || offerAny?.vendor || {}),
-      id: finalSellerId,
-      name: finalSellerName,
-    };
-
-    const sharedSource = {
-      ...(offerAny?.attrs?.source || offerAny?.source || {}),
-      node: "ms-market",
-      sceneId: sourceSceneId,
-    };
-
-    const consultDV = {
-      id: consultId,
-      kind: "mt.consult",
-      attrs: {
-        threadId: finalThreadId,
-        consultId,
-        offerId: offerAny?.id || offer?.id || null,
-        productId: offerAny?.productoId || offer?.productoId || null,
-        fromActorId: actor.id,
+    const action = makeAction(
+      "mt.consult",
+      text,
+      {
         buyerId: actor.id,
         buyerName: actor.name || "Actor local",
-        toActorId: finalSellerId,
-        sellerId: finalSellerId,
-        sellerName: finalSellerName,
-        cajeroId: cajeroId || null,
-        text,
+        productId: offerAny?.productoId || offer?.productoId || null,
         question: text,
         consultText: text,
         ok: null,
         status: "open",
-        unreadBy: [finalSellerId].filter(Boolean),
-        targetAuthor: {
-          id: finalSellerId,
-          name: finalSellerName,
-        },
-        contact: sharedContact,
-        vendor: sharedVendor,
-        source: sharedSource,
-        participants: [actor.id, finalSellerId, cajeroId].filter(Boolean),
+        targetAuthor: { id: sellerId, name: sellerName },
       },
-      traits: ["mt:consult", "mt:thread", "mo:consult"],
-      meta: {
-        ns: "mt:market",
-        ts: new Date().toISOString(),
-        scopes: ["public"],
-        source: "ms.offeraction.consult",
-      },
-    };
-
-    const chatDV = {
-      id: `trade.message:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`,
-      kind: "trade.message",
-      attrs: {
-        threadId: finalThreadId,
-        offerId: offerAny?.id || offer?.id || null,
-        productoId: offerAny?.productoId || offer?.productoId || null,
-        fromActorId: actor.id,
-        toActorId: finalSellerId,
-        sellerId: finalSellerId,
-        sellerName: finalSellerName,
-        buyerId: actor.id,
-        cajeroId: cajeroId || null,
-        participants: [actor.id, finalSellerId, cajeroId].filter(Boolean),
-        unreadBy: [finalSellerId].filter(Boolean),
-        text: `Consulta: ${text}`,
-        actionKind: "mt.consult",
-        responseToId: consultId,
-        contact: sharedContact,
-        vendor: sharedVendor,
-        source: sharedSource,
-      },
-      traits: ["mt:chat", "mt:thread", "mt:consult"],
-      meta: {
-        ns: "mt:market",
-        ts: new Date().toISOString(),
-        scopes: ["public"],
-        source: "ms.offeraction.consult.message",
-      },
-    };
-
-    mtLiveUpsert(consultDV as any);
-    mtLiveUpsert(chatDV as any);
-
-    await publishDV(consultDV);
-    await publishDV(chatDV);
-
+      ["mt:consult"]
+    );
+    action.attrs = { ...(action.attrs || {}), consultId: action.id };
+    await publishDV(action);
     closeOk();
   };
 
-  const handleAccept = () => {
+  const handleAccept = async () => {
     if (!activeCajero && onNeedCajero) {
       setError("Elegí un cajero para formalizar la aceptación.");
       onNeedCajero();
@@ -574,8 +458,7 @@ export default function OfferActionModal({
       `Acepto la oferta por ${safeQty} unidad(es).`
     );
 
-    const action = upsertDV("trade.intent.accept", {
-      ...baseContext,
+    await publishAction("trade.intent.accept", note, {
       cantidad: safeQty,
       precio_unitario: safeNum(offer.precio, 0),
       total,
@@ -584,27 +467,10 @@ export default function OfferActionModal({
       note,
       status: "pending",
     });
-
-    emitChatMessage({
-      offer,
-      threadId: resolvedThreadId || threadId,
-      fromActorId: actor.id,
-      toActorId: sellerId || null,
-      cajeroId: cajeroId || null,
-      sellerId: sellerId || null,
-      sellerName: sellerName || null,
-      contact: baseContext.contact,
-      vendor: baseContext.vendor,
-      source: baseContext.source,
-      text: note,
-      actionKind: "trade.intent.accept",
-      responseToId: action.id,
-    });
-
     closeOk();
   };
 
-  const handleCounter = () => {
+  const handleCounter = async () => {
     const proposedQty = Math.max(1, safeNum(counterQty, 1));
     const proposedPrice = Math.max(0, safeNum(counterPrice, 0));
 
@@ -613,35 +479,17 @@ export default function OfferActionModal({
       `Te propongo ${proposedQty} unidad(es) a ${proposedPrice} cada una.`
     );
 
-    const action = upsertDV("trade.intent.counter", {
-      ...baseContext,
+    await publishAction("trade.intent.counter", note, {
       proposedQty,
       proposedPrice,
       cajeroId: activeCajero?.id || null,
       note,
       status: "pending",
     });
-
-    emitChatMessage({
-      offer,
-      threadId: resolvedThreadId || threadId,
-      fromActorId: actor.id,
-      toActorId: sellerId || null,
-      cajeroId: cajeroId || null,
-      sellerId: sellerId || null,
-      sellerName: sellerName || null,
-      contact: baseContext.contact,
-      vendor: baseContext.vendor,
-      source: baseContext.source,
-      text: note,
-      actionKind: "trade.intent.counter",
-      responseToId: action.id,
-    });
-
     closeOk();
   };
 
-  const handleBarter = () => {
+  const handleBarter = async () => {
     const barterProduct = ownProducts.find((p) => String(p.id) === String(barterProductId));
 
     if (!barterProduct) {
@@ -659,8 +507,7 @@ export default function OfferActionModal({
       }.`
     );
 
-    const action = upsertDV("trade.intent.barter", {
-      ...baseContext,
+    await publishAction("trade.intent.barter", note, {
       targetProductoId: offer.productoId,
       targetSellerId: sellerId,
       offeredProductoId: barterProduct.id,
@@ -671,61 +518,26 @@ export default function OfferActionModal({
       note,
       status: "pending",
     });
-
-    emitChatMessage({
-      offer,
-      threadId: resolvedThreadId || threadId,
-      fromActorId: actor.id,
-      toActorId: sellerId || null,
-      cajeroId: cajeroId || null,
-      sellerId: sellerId || null,
-      sellerName: sellerName || null,
-      contact: baseContext.contact,
-      vendor: baseContext.vendor,
-      source: baseContext.source,
-      text: note,
-      actionKind: "trade.intent.barter",
-      responseToId: action.id,
-    });
-
     closeOk();
   };
 
-  const handleMessage = () => {
+  const handleMessage = async () => {
     const text = String(message || "").trim();
     if (!text) {
       setError("Escribí un mensaje antes de enviar.");
       return;
     }
 
-    const action = upsertDV("trade.intent.message", {
-      ...baseContext,
+    await publishAction("trade.message", text, {
       cajeroId: activeCajero?.id || null,
       topic: "offer",
       message: text,
-      status: "pending",
-    });
-
-    emitChatMessage({
-      offer,
-      threadId: resolvedThreadId || threadId,
-      fromActorId: actor.id,
-      toActorId: sellerId || null,
-      cajeroId: cajeroId || null,
-      sellerId: sellerId || null,
-      sellerName: sellerName || null,
-      contact: baseContext.contact,
-      vendor: baseContext.vendor,
-      source: baseContext.source,
-      text,
-      actionKind: "trade.intent.message",
-      responseToId: action.id,
-    });
-
+      status: "sent",
+    }, ["mt:chat"]);
     closeOk();
   };
 
-  const handleFulfill = () => {
+  const handleFulfill = async () => {
     const proposedDays = Math.max(1, safeNum(fulfillDays, 1));
     const proposedPrice = Math.max(0, safeNum(fulfillPrice, 0));
 
@@ -734,73 +546,60 @@ export default function OfferActionModal({
       `Puedo producir/cumplir esto en ${proposedDays} día(s) por ${proposedPrice}.`
     );
 
-    const action = upsertDV("trade.intent.fulfill", {
-      ...baseContext,
+    await publishAction("trade.intent.fulfill", note, {
       proposedDays,
       proposedPrice,
       cajeroId: activeCajero?.id || null,
       note,
-      sourceNodeHint: "mo",
+      sourceNodeHint: actor.nodeId || actor.id,
       status: "pending",
     });
-
-    emitChatMessage({
-      offer,
-      threadId: resolvedThreadId || threadId,
-      fromActorId: actor.id,
-      toActorId: sellerId || null,
-      cajeroId: cajeroId || null,
-      sellerId: sellerId || null,
-      sellerName: sellerName || null,
-      contact: baseContext.contact,
-      vendor: baseContext.vendor,
-      source: baseContext.source,
-      text: note,
-      actionKind: "trade.intent.fulfill",
-      responseToId: action.id,
-    });
-
     closeOk();
   };
 
-  const handleVariant = () => {
+  const handleVariant = async () => {
     const notes = String(variantNotes || "").trim();
     if (!notes) {
       setError("Describe la variante que quieres pedir.");
       return;
     }
 
-    const action = upsertDV(
+    const action = await publishAction(
       "mt.demand",
+      `Quiero una variante: ${notes}`,
       {
-        ...baseContext,
         type: "variant.request",
         productId: offer.productoId,
         targetAuthor: offerAny?.attrs?.author || offerAny?.author || null,
         notes,
         status: "pending",
       },
-      {
-        traits: ["mt:demand", "mt:variant.request", "mt:thread"],
-      }
+      ["mt:demand", "mt:variant.request"]
     );
 
-    emitChatMessage({
-      offer,
+    const hasOfferLocation = Boolean(
+      offerAny?.attrs?.location ||
+        offerAny?.attrs?.geo ||
+        offerAny?.location ||
+        offerAny?.geo ||
+        offerAny?.attrs?.lat != null
+    );
+    const location = hasOfferLocation
+      ? null
+      : await requestApproximateBrowserLocation();
+    const mapSignal = buildLinkedWorkIntentDV({
+      text: `Necesito adaptar este diseño: ${notes}`,
+      title: `Adaptar diseño: ${notes}`,
+      actorId: String(actor.id),
+      actorName: actor.name || "Actor local",
+      nodeId: actor.nodeId || null,
       threadId: resolvedThreadId || threadId,
-      fromActorId: actor.id,
-      toActorId: sellerId || null,
-      cajeroId: cajeroId || null,
-      sellerId: sellerId || null,
-      sellerName: sellerName || null,
-      contact: baseContext.contact,
-      vendor: baseContext.vendor,
-      source: baseContext.source,
-      text: `Quiero una variante: ${notes}`,
-      actionKind: "mt.demand.variant.request",
-      responseToId: action.id,
+      sourceDV: offerAny,
+      location,
+      sourceActionId: action.id || null,
+      domain: "general",
     });
-
+    await publishDV(mapSignal);
     closeOk();
   };
 
@@ -812,10 +611,10 @@ export default function OfferActionModal({
             <div>
               <Title>Responder oferta viva</Title>
               <Subtle>
-                Oferta {String(offer.tipo).toUpperCase()} · producto {String(offer.productoId)} ·
+                Oferta {String(offer.tipo).toUpperCase()} ·
                 precio {String(offer.precio)}
               </Subtle>
-              <Subtle>Thread: {resolvedThreadId || threadId || "—"}</Subtle>
+              {import.meta.env.DEV ? <Subtle>Thread: {resolvedThreadId || threadId || "—"}</Subtle> : null}
               <Subtle>Diseñador: {resolvedSellerName}</Subtle>
             </div>
             <Btn onClick={onClose}>Cerrar</Btn>
@@ -826,12 +625,8 @@ export default function OfferActionModal({
 
             <Card>
               <div style={{ fontWeight: 950, marginBottom: 6 }}>Identidad local</div>
-              <Subtle>
-                Actor: {actor.name || "Actor local"} · {actor.id}
-              </Subtle>
-              <Subtle>
-                Destino: {sellerName} · {sellerId || "sin sellerId"}
-              </Subtle>
+              <Subtle>{actor.name || "Perfil Vivo"}</Subtle>
+              <Subtle>Destino: {sellerName || "Persona"}</Subtle>
               <Subtle>
                 Cajero activo: {activeCajero ? activeCajero.nombre : "sin seleccionar"}
               </Subtle>
@@ -877,7 +672,7 @@ export default function OfferActionModal({
                     Consulta al diseñador / vendedor
                   </div>
                   <Subtle>Diseñador: {authorName}</Subtle>
-                  <Subtle>Thread: {resolvedThreadId || threadId || "—"}</Subtle>
+                  {import.meta.env.DEV ? <Subtle>Thread: {resolvedThreadId || threadId || "—"}</Subtle> : null}
                   <Subtle style={{ marginTop: 10 }}>
                     Esto crea una consulta viva conectada al mismo hilo del diseño/oferta.
                   </Subtle>
@@ -1094,7 +889,7 @@ export default function OfferActionModal({
                     Pedido de variante
                   </div>
                   <Subtle>Diseñador: {authorName}</Subtle>
-                  <Subtle>Thread del diseño: {resolvedThreadId || threadId || "—"}</Subtle>
+                  {import.meta.env.DEV ? <Subtle>Thread del diseño: {resolvedThreadId || threadId || "—"}</Subtle> : null}
                   <Subtle style={{ marginTop: 10 }}>
                     Esto emite una demanda viva conectada al mismo hilo del diseño.
                   </Subtle>

@@ -52,17 +52,19 @@ export function ingestEconomicDV(dv: DVLike | null | undefined) {
     const status = String(a.status || "").toLowerCase();
 
     if (["paid", "accepted", "settled", "confirmed"].includes(status)) {
-      emitTrustSignal({
-        actorId: a.sellerId || a.assignment?.sellerId || "seller:unknown",
-        targetId: a.buyerId || a.assignment?.buyerId,
-        signalType: "payment.completed",
-        weight: 0.75,
-        reason: "Pago completado",
-        sourceKind: dv.kind,
-        sourceId: dv.id,
-        threadId: a.threadId,
-        orderId: a.orderId,
-      });
+      if (a.liquidityAlreadyRecorded !== true) {
+        emitTrustSignal({
+          actorId: a.sellerId || a.assignment?.sellerId || "seller:unknown",
+          targetId: a.buyerId || a.assignment?.buyerId,
+          signalType: "payment.completed",
+          weight: 0.75,
+          reason: "Pago completado",
+          sourceKind: dv.kind,
+          sourceId: dv.id,
+          threadId: a.threadId,
+          orderId: a.orderId,
+        });
+      }
 
       emitFiscalDocument({
         docType: "receipt",
@@ -75,14 +77,14 @@ export function ingestEconomicDV(dv: DVLike | null | undefined) {
         orderId: a.orderId,
         sessionId: a.sessionId,
         threadId: a.threadId,
-        reason: "Pago confirmado, recibo fiscal borrador",
+        reason: "Borrador de documento; pago y aceptación fiscal son independientes",
       });
 
       emitUtopyDV(
         buildAiDecisionDV({
           decision: "fiscal",
           confidence: 0.78,
-          reason: "Pago aceptado: crear documento fiscal y actualizar trust",
+          reason: "Pago aceptado: preparar borrador de documento sin validez fiscal",
           source: dv,
         }),
         "mt"

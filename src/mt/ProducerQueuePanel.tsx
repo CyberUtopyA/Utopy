@@ -1,7 +1,11 @@
 import React, { useMemo } from "react";
+import WorkCommercialDocument from "../fiscal/WorkCommercialDocument";
 import {
   aggregateWorkCards,
   collectWorkCards,
+  humanWorkDomain,
+  isWorkAssignedTo,
+  workDomainIcon,
   type WorkAggregate,
 } from "./Workadapter";
 
@@ -12,43 +16,19 @@ type Props = {
   nodeId?: string | null;
   orgId?: string | null;
   territoryId?: string | null;
+  hideOpen?: boolean;
+  readOnly?: boolean;
+  onOpenThread?: (threadId: string) => void;
 };
 
-function toneForStatus(status: WorkAggregate["status"]) {
-  switch (status) {
-    case "planned":
-      return "rgba(138,43,226,0.14)";
-    case "quoted":
-      return "rgba(255,190,120,0.16)";
-    case "in_progress":
-      return "rgba(0,180,255,0.16)";
-    case "done":
-      return "rgba(30,200,120,0.16)";
-    case "cancelled":
-      return "rgba(255,80,80,0.14)";
-    case "open":
-    default:
-      return "rgba(255,255,255,0.08)";
-  }
-}
-
 function labelForStatus(status: WorkAggregate["status"]) {
-  switch (status) {
-    case "open":
-      return "Abierto";
-    case "planned":
-      return "Planeado";
-    case "quoted":
-      return "Cotizado";
-    case "in_progress":
-      return "En curso";
-    case "done":
-      return "Terminado";
-    case "cancelled":
-      return "Cancelado";
-    default:
-      return status;
-  }
+  if (status === "planned") return "Planeado";
+  if (status === "quoted") return "Cotizado";
+  if (status === "in_progress") return "En curso";
+  if (status === "awaiting_confirmation") return "Esperando confirmación";
+  if (status === "done") return "Terminado";
+  if (status === "cancelled") return "Cancelado";
+  return "Abierto";
 }
 
 export default function ProducerQueuePanel({
@@ -57,108 +37,115 @@ export default function ProducerQueuePanel({
   nodeId,
   orgId,
   territoryId,
+  onOpenThread,
+  readOnly = false,
 }: Props) {
   const items = useMemo(() => {
-    const cards = collectWorkCards(allLive, {
-      actorId,
-      nodeId,
-      orgId,
-      territoryId,
-    });
-    return aggregateWorkCards(cards);
+    const aggregates = aggregateWorkCards(
+      collectWorkCards(allLive, { actorId, nodeId, orgId, territoryId }),
+    );
+    return aggregates.filter(
+      (item) =>
+        item.status !== "open" &&
+        Boolean(item.plan || item.execution || item.outcome || item.pack) &&
+        isWorkAssignedTo(item, { actorId, nodeId, orgId }),
+    );
   }, [allLive, actorId, nodeId, orgId, territoryId]);
 
-  const grouped = useMemo(() => {
-    return {
-      open: items.filter((x) => x.status === "open"),
-      planned: items.filter((x) => x.status === "planned" || x.status === "quoted"),
-      inProgress: items.filter((x) => x.status === "in_progress"),
-      done: items.filter((x) => x.status === "done"),
-    };
-  }, [items]);
+  const grouped = useMemo(
+    () => ({
+      planned: items.filter((item) =>
+        ["planned", "quoted"].includes(item.status),
+      ),
+      inProgress: items.filter((item) =>
+        ["in_progress", "awaiting_confirmation"].includes(item.status),
+      ),
+      done: items.filter((item) => item.status === "done"),
+    }),
+    [items],
+  );
 
   const column = (title: string, list: WorkAggregate[], tone: string) => (
     <div
       style={{
-        border: "1px solid rgba(0,0,0,0.06)",
+        border: "1px solid rgba(0,0,0,0.07)",
         borderRadius: 18,
         background: "#fff",
         padding: 12,
+        minHeight: 160,
         display: "grid",
+        alignContent: "start",
         gap: 10,
-        minHeight: 180,
       }}
     >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: 8,
-        }}
-      >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
         <b>{title}</b>
         <span
           style={{
-            fontSize: 12,
-            fontWeight: 900,
-            padding: "4px 8px",
+            minWidth: 24,
+            height: 24,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
             borderRadius: 999,
             background: tone,
+            fontSize: 12,
+            fontWeight: 950,
           }}
         >
           {list.length}
         </span>
       </div>
 
-      <div
-        style={{
-          display: "grid",
-          gap: 8,
-          maxHeight: 260,
-          overflowY: "auto",
-          paddingRight: 4,
-        }}
-      >
-        {!list.length ? (
-          <div style={{ fontSize: 12, opacity: 0.65 }}>Sin items</div>
-        ) : (
-          list.map((it) => {
-            const isPack = !!it.base && it.base.kind === "mo.fabrication.pack";
-
-            return (
-              <div
-                key={it.workId}
+      {!list.length ? (
+        <div style={{ fontSize: 12, opacity: 0.6 }}>Sin elementos</div>
+      ) : (
+        list.map((item) => (
+          <div
+            key={item.workId}
+            style={{
+              border: "1px solid rgba(0,0,0,0.07)",
+              borderRadius: 14,
+              padding: 10,
+              background: item.technicalOnly
+                ? "linear-gradient(180deg,#fff,#f7f3ff)"
+                : "#fafafa",
+              display: "grid",
+              gap: 4,
+            }}
+          >
+            <div style={{ fontWeight: 900 }}>
+              {workDomainIcon(item.domain)} {item.title}
+            </div>
+            <div style={{ fontSize: 12, opacity: 0.68 }}>
+              {humanWorkDomain(item.domain)} · {labelForStatus(item.status)}
+            </div>
+            {item.technicalOnly ? (
+              <div style={{ fontSize: 11, opacity: 0.58 }}>
+                🧩 Preparación técnica enlazada al mismo trabajo
+              </div>
+            ) : null}
+            {!readOnly && item.status === "done" && (nodeId || actorId) ? <WorkCommercialDocument workId={item.workId} issuerNodeId={nodeId || actorId!} source={item.outcome?.source} /> : null}
+            {item.threadId && onOpenThread ? (
+              <button
+                type="button"
+                onClick={() => onOpenThread(item.threadId!)}
                 style={{
-                  border: "1px solid rgba(0,0,0,0.08)",
-                  borderRadius: 14,
-                  padding: 10,
-                  background: isPack
-                    ? "linear-gradient(180deg, #fff 0%, #f7f3ff 100%)"
-                    : "#fafafa",
-                  display: "grid",
-                  gap: 4,
+                  justifySelf: "start",
+                  border: "1px solid rgba(0,0,0,0.1)",
+                  borderRadius: 10,
+                  padding: "7px 10px",
+                  background: "#fff",
+                  fontWeight: 850,
+                  cursor: "pointer",
                 }}
               >
-                <div style={{ fontWeight: 800 }}>{it.title}</div>
-                <div style={{ fontSize: 12, opacity: 0.72 }}>
-                  {it.domain}
-                </div>
-                <div style={{ fontSize: 11, opacity: 0.7 }}>
-                  {labelForStatus(it.status)}
-                  {it.quantity != null ? ` · qty ${it.quantity}` : ""}
-                  {it.materialCount != null ? ` · ${it.materialCount}` : ""}
-                </div>
-                <div style={{ fontSize: 11, opacity: 0.6 }}>
-                  {it.orgId ? `org ${it.orgId}` : ""}
-                  {it.orgId && it.territoryId ? " · " : ""}
-                  {it.territoryId ? `territorio ${it.territoryId}` : ""}
-                </div>
-              </div>
-            );
-          })
-        )}
-      </div>
+                Ver progreso
+              </button>
+            ) : null}
+          </div>
+        ))
+      )}
     </div>
   );
 
@@ -167,27 +154,12 @@ export default function ProducerQueuePanel({
       style={{
         display: "grid",
         gap: 12,
+        gridTemplateColumns: "repeat(auto-fit,minmax(210px,1fr))",
       }}
     >
-      <div style={{ display: "grid", gap: 4 }}>
-        <div style={{ fontWeight: 950, fontSize: 16 }}>🏭 Cola productiva</div>
-        <div style={{ fontSize: 13, opacity: 0.75 }}>
-          Estado real del trabajo filtrado por actor, nodo, organización y territorio.
-        </div>
-      </div>
-
-      <div
-        style={{
-          display: "grid",
-          gap: 12,
-          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-        }}
-      >
-        {column("Abiertos", grouped.open, "rgba(255,255,255,0.08)")}
-        {column("Planeados", grouped.planned, "rgba(138,43,226,0.14)")}
-        {column("En curso", grouped.inProgress, "rgba(0,180,255,0.16)")}
-        {column("Terminados", grouped.done, "rgba(30,200,120,0.16)")}
-      </div>
+      {column("Planeados", grouped.planned, "rgba(138,43,226,0.14)")}
+      {column("En curso", grouped.inProgress, "rgba(0,180,255,0.14)")}
+      {column("Terminados", grouped.done, "rgba(30,200,120,0.14)")}
     </div>
   );
 }

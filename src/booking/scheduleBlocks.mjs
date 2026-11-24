@@ -1,0 +1,5 @@
+import {check,validateTimeWindows} from './contracts.mjs';
+const fingerprint=w=>JSON.stringify({start:w.start,end:w.end,breaks:[...(w.breaks||[])].map(b=>({start:b.start,end:b.end})).sort((a,b)=>a.start.localeCompare(b.start))});
+export function groupSchedule(windows){const groups=new Map();for(const w of windows){const id=fingerprint(w);if(!groups.has(id))groups.set(id,{id,start:w.start,end:w.end,breaks:w.breaks||[],days:[]});groups.get(id).days.push(w.day);}return [...groups.values()].map(g=>({...g,days:g.days.sort((a,b)=>a-b)}));}
+export function replaceScheduleBlock(windows,block,editingId=null){check(Array.isArray(block.days)&&block.days.length>0,'CHOOSE_DAYS');const remaining=windows.filter(w=>fingerprint(w)!==editingId);const next=[...remaining,...[...new Set(block.days)].map(day=>({day,start:block.start,end:block.end,breaks:structuredClone(block.breaks||[])}))];validateTimeWindows(next,true);return next;}
+export function removeScheduleBlock(windows,id){return windows.filter(w=>fingerprint(w)!==id);}

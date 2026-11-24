@@ -125,7 +125,12 @@ export function extractExtraAttributes(attrs: any): ExtraAttrView[] {
  * - attrs.* sigue funcionando igual
  */
 export function normalizeMtProducto(raw: DatoVivoBase): MtProductoView | null {
-  if (!raw || raw.kind !== "producto") return null;
+  if (
+    !raw ||
+    !["producto", "mt:producto", "mt:product", "market.product"].includes(
+      String(raw.kind || "").toLowerCase(),
+    )
+  ) return null;
 
   const attrs = raw.attrs || {};
   const meta = raw.meta || {};
@@ -145,13 +150,13 @@ export function normalizeMtProducto(raw: DatoVivoBase): MtProductoView | null {
   const price =
     sem.price != null && !Number.isNaN(Number(sem.price))
       ? Number(sem.price)
-      : attrs.precio != null && !Number.isNaN(Number(attrs.precio))
-      ? Number(attrs.precio)
+      : (attrs.precio ?? attrs.price) != null && !Number.isNaN(Number(attrs.precio ?? attrs.price))
+      ? Number(attrs.precio ?? attrs.price)
       : undefined;
 
   const stock =
-    attrs.stock != null && !Number.isNaN(Number(attrs.stock))
-      ? Number(attrs.stock)
+    (attrs.stock ?? attrs.stockQty) != null && !Number.isNaN(Number(attrs.stock ?? attrs.stockQty))
+      ? Number(attrs.stock ?? attrs.stockQty)
       : undefined;
 
   const brand =

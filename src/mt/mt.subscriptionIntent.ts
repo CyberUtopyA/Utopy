@@ -1,14 +1,14 @@
 // src/mt/mt.subscriptionIntent.ts
-// Débito automático (suscripción) via DVs + intents.
-// DVs nuevos:
+// Recurrencia y pago automático son contratos separados sobre los mismos DVs.
+// Contratos de pago heredados compatibles:
 // - payment.plan.offer
 // - payment.mandate
 // - payment.charge
 // - payment.charge.accept
 
 import { spore } from "../utopy/spore.singleton";
-import { mtLiveUpsert } from "./mt.liveStore";
 import type { PaymentMethod } from "./mt.intentpayment";
+import { publishAuthorizedDV } from "../utopy/authorizedPublish";
 
 type AnyDV = any;
 
@@ -19,6 +19,197 @@ const uid = () =>
 
 function safeStr(x: any) {
   return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+
+function unique(values: any[]) {
+  return Array.from(new Set((values || []).filter(Boolean).map(String)));
+}
+
+export type SubscriptionEventKind =
+  | "subscription.proposal"
+  | "subscription.accepted"
+  | "subscription.active"
+  | "subscription.paused"
+  | "subscription.cancelled";
+
+export type SubscriptionRelationInput = {
+  relationshipId?: string | null;
+  threadId: string;
+  chainId?: string | null;
+  rootDvId?: string | null;
+  parentDvId?: string | null;
+  subscriptionId?: string | null;
+  orderId?: string | null;
+  actorId: string;
+  actorName?: string | null;
+  participants?: string[];
+};
+
+function relationAttrs(input: SubscriptionRelationInput) {
+  const threadId = safeStr(input.threadId);
+  const chainId = safeStr(input.chainId) || threadId;
+  return {
+    relationshipId: input.relationshipId || null,
+    threadId,
+    chainId,
+    rootDvId: input.rootDvId || null,
+    parentDvId: input.parentDvId || null,
+    subscriptionId: input.subscriptionId || null,
+    orderId: input.orderId || null,
+    actorId: input.actorId,
+    actorName: input.actorName || null,
+    fromActorId: input.actorId,
+    fromActorName: input.actorName || null,
+    participants: unique([...(input.participants || []), input.actorId]),
+    relation: {
+      relationshipId: input.relationshipId || null,
+      threadId,
+      chainId,
+      rootDvId: input.rootDvId || null,
+      parentDvId: input.parentDvId || null,
+    },
+  };
+}
+
+export function buildSubscriptionEventDV(
+  kind: SubscriptionEventKind,
+  input: SubscriptionRelationInput & {
+    title?: string | null;
+    frequency?: string | null;
+    every?: number | null;
+    nextOccurrence?: string | null;
+    attrs?: Record<string, any>;
+    authority?: string | null;
+  },
+) {
+  const status = kind.replace("subscription.", "");
+  const ts = new Date().toISOString();
+  const subscriptionId =
+    input.subscriptionId || `subscription:${safeStr(input.threadId)}`;
+  return {
+    id: `${kind}:${subscriptionId}:${uid()}`,
+    kind,
+    attrs: {
+      ...relationAttrs({ ...input, subscriptionId }),
+      title: input.title || null,
+      frequency: input.frequency || null,
+      every: input.every || 1,
+      nextOccurrence: input.nextOccurrence || null,
+      status,
+      ...(input.attrs || {}),
+    },
+    traits: ["mt:subscription", "utopy:chain", `subscription:${status}`],
+    meta: {
+      ns: "mt:market",
+      ts,
+      threadId: input.threadId,
+      relationshipId: input.relationshipId || null,
+      chainId: input.chainId || input.threadId,
+      rootDvId: input.rootDvId || null,
+      parentDvId: input.parentDvId || null,
+      scopes: ["participants"],
+      schema: "utopy.subscription.event@1",
+      authority: input.authority || input.actorId,
+      source: "ms.subscription.protocol",
+    },
+  };
+}
+
+function buildAutopayRequestDV(
+  kind:
+    | "payment.autopay.authorization.request"
+    | "payment.autopay.revoke.request",
+  input: SubscriptionRelationInput & {
+    authorizationId?: string | null;
+    sellerId?: string | null;
+    buyerId?: string | null;
+    amountMax?: number | null;
+    currency?: string | null;
+    interval?: PlanInterval | null;
+    every?: number | null;
+    chosen?: PaymentMethod | null;
+    reason?: string | null;
+  },
+) {
+  const ts = new Date().toISOString();
+  return {
+    id: `${kind}:${uid()}`,
+    kind,
+    attrs: {
+      ...relationAttrs(input),
+      authorizationId: input.authorizationId || null,
+      sellerId: input.sellerId || null,
+      buyerId: input.buyerId || input.actorId,
+      amountMax: Math.max(0, Number(input.amountMax || 0)),
+      currency: input.currency || "PYG",
+      interval: input.interval || null,
+      every: input.every || 1,
+      chosen: input.chosen || null,
+      reason: input.reason || null,
+      status: "requested",
+      security: {
+        requiresConsent: true,
+        execution: "authorized-payment-node",
+        automaticConfirmation: false,
+      },
+    },
+    traits: ["mt:payment.autopay", "utopy:action.request", "consent:required"],
+    meta: {
+      ns: "mt:market",
+      ts,
+      threadId: input.threadId,
+      relationshipId: input.relationshipId || null,
+      chainId: input.chainId || input.threadId,
+      rootDvId: input.rootDvId || null,
+      parentDvId: input.parentDvId || null,
+      scopes: ["participants"],
+      schema: "utopy.payment.autopay.request@1",
+      actor: input.actorId,
+      source: "ms.autopay.request",
+    },
+  };
+}
+
+export function buildAutopayAuthorizationRequestDV(
+  input: Parameters<typeof buildAutopayRequestDV>[1],
+) {
+  return buildAutopayRequestDV("payment.autopay.authorization.request", input);
+}
+
+export function buildAutopayRevokeRequestDV(
+  input: Parameters<typeof buildAutopayRequestDV>[1],
+) {
+  return buildAutopayRequestDV("payment.autopay.revoke.request", input);
+}
+
+/** Publica el mismo DV firmado; nunca convierte requests en outcomes. */
+export async function publishSubscriptionDV(
+  dv: AnyDV,
+  options: {
+    allLive?: any[];
+    activeActor?: any | null;
+    actingAsNodeId?: string | null;
+    targetNodeId?: string | null;
+  } = {},
+) {
+  const result = await publishAuthorizedDV({
+    dv,
+    allLive: options.allLive,
+    activeActor: options.activeActor,
+    actingAsNodeId: options.actingAsNodeId,
+    targetNodeId: options.targetNodeId,
+    sensitivity: /accepted|cancelled|autopay/i.test(String(dv?.kind || ""))
+      ? "sensitive"
+      : "relationship",
+  });
+  const signed = result.dv;
+  try {
+    await spore?.sayIntent?.({ sym: "🧬", say: "dato.upsert", with: { dv: signed } });
+  } catch {}
+  try {
+    await spore?.sayIntent?.({ sym: "🔐", say: dv.kind, with: signed });
+  } catch {}
+  return signed;
 }
 
 export type PlanInterval = "daily" | "weekly" | "monthly" | "custom";

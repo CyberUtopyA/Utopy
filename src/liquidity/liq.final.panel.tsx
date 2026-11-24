@@ -24,7 +24,7 @@ export default function LiqFinalPanel({
     <div className="grid gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 text-white">
       <div>
         <h2 className="text-lg font-black">UTOPY Liquidity V1 Final</h2>
-        <p className="text-sm text-white/60">{actorName || actorId}</p>
+        <p className="text-sm text-white/60">{actorName || "Persona"}</p>
       </div>
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">

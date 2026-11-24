@@ -1,0 +1,11 @@
+{
+  "name": "UTOPY Market",
+  "short_name": "UTOPY",
+  "description": "Mercado vivo y red de nodos UTOPY",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#6d5dfc",
+  "icons": []
+}

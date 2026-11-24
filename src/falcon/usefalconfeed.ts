@@ -1,10 +1,7 @@
+// src/falcon/usefalconfeed.ts
+// Falcon ya no abre otra red paralela: interpreta el mismo mt.liveStore universal.
+
 import { useEffect, useMemo, useState } from "react";
-import { mtLiveSnapshot, mtLiveSubscribe } from "../mt/mt.liveStore";
-import {
-  adaptDatosToMtProducts,
-  adaptDatosToMtOffers,
-  type DatoVivo,
-} from "../mt/mt.traitAdapter";
 import {
   DEFAULT_FALCON_MT_NAMESPACES,
   parseNsList,
@@ -12,275 +9,145 @@ import {
   upsertById,
   type CanonicalFalconItem,
 } from "./falconcurator";
+import { mtLiveSnapshot, mtLiveSubscribe } from "../mt/mt.liveStore";
+import { ingestFrame } from "../mt/mt.ingest";
+import { bootLiveSymbiosis } from "../utopy/bootLiveSymbiosis";
 
-function arr<T = any>(x: any): T[] {
-  return Array.isArray(x) ? x : [];
-}
+const FALCON_MT_NS_RAW =
+  (import.meta as any)?.env?.VITE_FALCON_MT_NS ||
+  DEFAULT_FALCON_MT_NAMESPACES.join(",");
+const SNAPSHOT_KEY = "falcon.feed.snapshot.v3";
 
-function safeText(...values: any[]): string {
-  for (const v of values) {
-    if (typeof v === "string" && v.trim()) return v.trim();
+function readSnapshot(): CanonicalFalconItem[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(SNAPSHOT_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
   }
-  return "";
 }
 
-function num(x: any): number | null {
-  if (typeof x === "number" && Number.isFinite(x)) return x;
-  if (typeof x === "string") {
-    const cleaned = x.replace(/[^\d.,-]/g, "").replace(/\./g, "").replace(",", ".");
-    const n = Number(cleaned);
-    if (Number.isFinite(n)) return n;
+function persistSnapshot(items: CanonicalFalconItem[]) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(items));
+  } catch {}
+}
+
+function curate(
+  all: any[],
+  targetNamespaces: string[],
+): CanonicalFalconItem[] {
+  let result: CanonicalFalconItem[] = [];
+  for (const raw of all) {
+    const item = toCanonicalFalconItem(raw, targetNamespaces);
+    if (item) result = upsertById(result, item);
   }
-  return null;
+  return result;
 }
 
-function uniqStrings(values: any[]): string[] {
-  return Array.from(
-    new Set(
-      values
-        .map((x) => String(x || "").trim().toLowerCase())
-        .filter(Boolean)
-    )
-  );
-}
-
-function sortByScore<T extends { score?: number }>(items: T[]) {
-  return [...items].sort((a, b) => (b.score || 0) - (a.score || 0));
-}
-
-function mapMtProductToFalconItem(product: any): CanonicalFalconItem {
-  const tags = uniqStrings([
-    ...arr(product?.tags),
-    ...arr(product?.traits),
-    ...arr(product?.labels),
-    safeText(product?.category, product?.categoria),
-    product?.creditEligible ? "payment:credit.eligible" : "",
-    product?.recurrente || product?.commerce?.recurrente ? "mt:recurrente" : "",
-    "mt:producto",
-  ]);
-
-  const cover = safeText(
-    product?.image,
-    product?.imageUrl,
-    product?.cover,
-    product?.media?.image,
-    product?.media?.image?.url
-  );
-
-  const price =
-    num(product?.price) ??
-    num(product?.amount) ??
-    num(product?.priceAmount) ??
-    num(product?.precio);
-
-  const currency = safeText(product?.currency, "PYG") || "PYG";
-
-  const title = safeText(
-    product?.title,
-    product?.name,
-    product?.nombre,
-    product?.label,
-    product?.productName,
-    "Producto"
-  );
-
-  const subtitle = safeText(
-    product?.description,
-    product?.summary,
-    product?.subtitle,
-    product?.details
-  );
-
-  const orgId = safeText(
-    product?.sellerId,
-    product?.vendor?.id,
-    product?.author?.id,
-    product?.orgId
-  ) || undefined;
-
-  const orgName = safeText(
-    product?.sellerName,
-    product?.vendor?.name,
-    product?.author?.name,
-    product?.orgName
-  ) || undefined;
-
-  const territoryId = safeText(
-    product?.territoryId,
-    product?.meta?.territoryId
-  ) || undefined;
-
-  const territoryName = safeText(
-    product?.territoryName,
-    product?.meta?.territoryName
-  ) || undefined;
-
-  const score =
-    Number(product?.score || 60) +
-    (cover ? 20 : 0) +
-    (typeof price === "number" ? 15 : 0) +
-    (orgName ? 10 : 0);
-
-  return {
-    id: String(product?.id || `mt-product:${title}`),
-    rootKind: "producto",
-    kind: String(product?.kind || "producto"),
-    title,
-    subtitle,
-    cover,
-    price,
-    currency,
-    category: safeText(product?.category, product?.categoria, "general"),
-    tags,
-    ns: safeText(product?.ns, product?.meta?.ns, "mt:market"),
-    scopes: Array.isArray(product?.meta?.scopes) ? product.meta.scopes : [],
-    score,
-    available:
-      product?.available ??
-      product?.inStock ??
-      (typeof product?.stock === "number" ? product.stock > 0 : true),
-    featured: tags.includes("featured") || tags.includes("destacado"),
-    creditEligible:
-      !!product?.creditEligible ||
-      !!product?.pay?.finance?.credit ||
-      tags.includes("payment:credit.eligible"),
-    recurrente:
-      !!product?.recurrente ||
-      !!product?.commerce?.recurrente ||
-      tags.includes("mt:recurrente"),
-    territoryId,
-    territoryName,
-    orgId,
-    orgName,
-    worldId: safeText(product?.worldId) || undefined,
-    role: undefined,
-    governanceMode: undefined,
-    commons: [],
-    productiveFocus: [],
-    domain: undefined,
-    marketCategory: safeText(product?.category, product?.categoria) || undefined,
-    inputKind: undefined,
-    publishAs: "unknown",
-    pieceCount: 0,
-    materialCount: 0,
-    processCount: 0,
-    providerCount: 0,
-    raw: product?.raw || product?.dv || product,
-  };
+function readLegacyBootstrap(): any[] {
+  if (typeof window === "undefined") return [];
+  const out: any[] = [];
+  const win = window as any;
+  const candidates = [
+    win.__MS_MARKET_PRODUCTS__,
+    win.__MT_PRODUCTS__,
+    win.__FALCON_BOOTSTRAP__,
+  ];
+  for (const value of candidates) {
+    if (Array.isArray(value)) out.push(...value);
+    else if (Array.isArray(value?.items)) out.push(...value.items);
+    else if (Array.isArray(value?.products)) out.push(...value.products);
+  }
+  for (const key of [
+    "ms.market.snapshot",
+    "ms.market.products",
+    "mt.market.snapshot",
+    "mt.products",
+    "falcon.bootstrap",
+  ]) {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(key) || "null");
+      if (Array.isArray(parsed)) out.push(...parsed);
+      else if (Array.isArray(parsed?.items)) out.push(...parsed.items);
+      else if (Array.isArray(parsed?.products)) out.push(...parsed.products);
+    } catch {}
+  }
+  return out;
 }
 
 export function useFalconFeed() {
-  const targetNamespaces = useMemo(() => parseNsList(DEFAULT_FALCON_MT_NAMESPACES.join(",")), []);
-  const [items, setItems] = useState<CanonicalFalconItem[]>([]);
-  const [marketOffers, setMarketOffers] = useState<any[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const targetNamespaces = useMemo(() => parseNsList(FALCON_MT_NS_RAW), []);
+  const [items, setItems] = useState<CanonicalFalconItem[]>(() => {
+    const live = curate(mtLiveSnapshot() as any[], targetNamespaces);
+    return live.length ? live : readSnapshot();
+  });
+  const [liveDVs, setLiveDVs] = useState<any[]>(() => mtLiveSnapshot() as any[]);
+  const [loading, setLoading] = useState(() => items.length === 0);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    function recompute(allDv: DatoVivo[]) {
-      try {
-        const all = Array.isArray(allDv) ? allDv : [];
+    const stopRuntime = bootLiveSymbiosis();
 
-        const mtProducts = adaptDatosToMtProducts(all);
-        const mtOffers = adaptDatosToMtOffers(all);
+    const legacy = readLegacyBootstrap();
+    if (legacy.length) ingestFrame(legacy, { source: "falcon.legacy.bootstrap" });
 
-        let productItems = mtProducts.map(mapMtProductToFalconItem);
-        let territoryItems: CanonicalFalconItem[] = [];
-        let orgItems: CanonicalFalconItem[] = [];
-
-        for (const dv of all) {
-          const item = toCanonicalFalconItem(dv, targetNamespaces);
-          if (!item) continue;
-
-          if (item.rootKind === "territorio") {
-            territoryItems = upsertById(territoryItems, item);
-            continue;
-          }
-
-          if (item.rootKind === "org") {
-            orgItems = upsertById(orgItems, item);
-          }
-        }
-
-        const merged = sortByScore([
-          ...productItems,
-          ...territoryItems,
-          ...orgItems,
-        ]);
-
-        setItems(merged);
-        setMarketOffers(mtOffers);
-        setLoading(false);
-        setError("");
-      } catch (e: any) {
-        setError(String(e?.message || e || "No se pudo adaptar Falcon feed"));
-        setLoading(false);
-      }
-    }
-
-    try {
-      recompute(mtLiveSnapshot());
-    } catch (e: any) {
-      setError(String(e?.message || e || "No se pudo leer mt.liveStore"));
+    const unsubscribe = mtLiveSubscribe((all) => {
+      const nextDVs = Array.isArray(all) ? (all as any[]) : [];
+      const next = curate(nextDVs, targetNamespaces);
+      setLiveDVs(nextDVs);
+      setItems(next);
+      persistSnapshot(next);
       setLoading(false);
-    }
-
-    const unsub = mtLiveSubscribe((all) => {
-      recompute(all);
+      setError("");
     });
 
-    return () => {
-      try {
-        unsub();
-      } catch {
-        // noop
+    const onStatus = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail;
+      if (detail?.state === "error" && items.length === 0) {
+        setError(detail.message || "Un nodo vivo todavía no respondió.");
       }
+    };
+    window.addEventListener("utopy:catalog-source:status", onStatus);
+
+    return () => {
+      unsubscribe();
+      stopRuntime();
+      window.removeEventListener("utopy:catalog-source:status", onStatus);
     };
   }, [targetNamespaces]);
 
   const productos = useMemo(
-    () => items.filter((x) => x.rootKind === "producto"),
-    [items]
+    () => items.filter((item: any) => item.rootKind === "producto"),
+    [items],
   );
-
   const territorios = useMemo(
-    () => items.filter((x) => x.rootKind === "territorio"),
-    [items]
+    () => items.filter((item: any) => item.rootKind === "territorio"),
+    [items],
   );
-
   const orgs = useMemo(
-    () => items.filter((x) => x.rootKind === "org"),
-    [items]
-  );
-
-  const summary = useMemo(
-    () => ({
-      items: items.length,
-      productos: productos.length,
-      territorios: territorios.length,
-      orgs: orgs.length,
-      offers: marketOffers.length,
-      targetNamespaces,
-    }),
-    [
-      items.length,
-      productos.length,
-      territorios.length,
-      orgs.length,
-      marketOffers.length,
-      targetNamespaces,
-    ]
+    () => items.filter((item: any) => item.rootKind === "org"),
+    [items],
   );
 
   return {
     loading,
     error,
     items,
+    liveDVs,
     productos,
     territorios,
     orgs,
-    marketOffers,
-    summary,
     targetNamespaces,
+    summary: {
+      items: items.length,
+      productos: productos.length,
+      territorios: territorios.length,
+      orgs: orgs.length,
+      targetNamespaces,
+    },
   };
 }

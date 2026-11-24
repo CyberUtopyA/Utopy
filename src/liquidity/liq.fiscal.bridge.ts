@@ -1,6 +1,5 @@
 import type { DVLike } from "./mt.liquidity";
-import { emitUtopyDV } from "./liquidity.publish";
-import { emitTrustSignal } from "./mt.trust.engine";
+import { mtLiveUpsertSafe } from "./liquidity.publish";
 
 const now = () => Date.now();
 const id = (p: string) => `${p}:${now()}:${Math.random().toString(36).slice(2, 8)}`;
@@ -26,10 +25,10 @@ export function buildFiscalDocumentDV(input: {
     kind: "liq.fiscal.document",
     ts: now(),
     traits: ["mt:liquidity", "mt:fiscal", "mt:legal"],
-    labels: ["Documento fiscal"],
+    labels: ["Borrador de documento"],
     meta: {
       ns: "mt:liquidity",
-      scopes: input.territoryId ? ["public", `territory:${input.territoryId}`] : ["public"],
+      scopes: ["private"],
       schema: "utopy.liq.fiscal.document.v1",
       by: input.actorId,
     },
@@ -41,7 +40,10 @@ export function buildFiscalDocumentDV(input: {
       amount: num(input.amount),
       currency: input.currency || "PYG",
       taxAmount: num(input.taxAmount),
-      legalStatus: input.legalStatus || "draft",
+      // Compatibility only: local callers and payment events have no fiscal authority.
+      legalStatus: "draft",
+      fiscalAuthority: false,
+      participants: [input.actorId, input.sellerId, input.buyerId].filter(Boolean),
       orderId: input.orderId,
       sessionId: input.sessionId,
       threadId: input.threadId,
@@ -53,22 +55,8 @@ export function buildFiscalDocumentDV(input: {
 
 export function emitFiscalDocument(input: Parameters<typeof buildFiscalDocumentDV>[0]) {
   const dv = buildFiscalDocumentDV(input);
-  emitUtopyDV(dv, "mt");
-
-  if (dv.attrs?.legalStatus === "valid") {
-    emitTrustSignal({
-      actorId: input.sellerId || input.actorId,
-      targetId: input.buyerId,
-      signalType: "fiscal.valid",
-      weight: 0.8,
-      reason: "Documento fiscal válido",
-      sourceKind: dv.kind,
-      sourceId: dv.id,
-      territoryId: input.territoryId,
-      threadId: input.threadId,
-      orderId: input.orderId,
-    });
-  }
+  // Legacy non-fiscal draft stays on this device; the public Seed bus is not a private fiscal transport.
+  mtLiveUpsertSafe(dv);
 
   return dv;
 }

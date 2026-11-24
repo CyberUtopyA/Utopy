@@ -109,16 +109,28 @@ export function usePaymentOffer(params: { sellerId: string; orderId?: string | n
  */
 export function resolveSellerKeyFromItem(p: any, fallbackCajero?: any) {
   const cajaId = p?.meta?.caja?.id ?? p?.attrs?.caja?.id ?? null;
-  const cajaNombre = p?.meta?.caja?.nombre ?? p?.attrs?.caja?.nombre ?? null;
 
   const prodId = p?.productor?.id ?? p?.attrs?.productor?.id ?? p?.meta?.productor?.id ?? null;
   const prodName = p?.productor?.nombre ?? p?.attrs?.productor?.nombre ?? p?.meta?.productor?.nombre ?? null;
 
-  const fallbackId = fallbackCajero?.id ?? "seller:unknown";
-  const fallbackName = fallbackCajero?.nombre ?? null;
-
-  const sellerId = safeStr(cajaId || prodId || fallbackId);
-  const sellerName = (cajaNombre || prodName || fallbackName) ?? null;
+  // El cajero es una superficie autorizada, no el vendedor ni el nodo.
+  const sellerId = safeStr(
+    p?.sellerId ||
+      p?.attrs?.sellerId ||
+      p?.vendor?.id ||
+      p?.attrs?.vendor?.id ||
+      prodId ||
+      p?.attrs?.nodeId ||
+      p?.meta?.originNode ||
+      "",
+  );
+  const sellerName =
+    p?.sellerName ||
+    p?.attrs?.sellerName ||
+    p?.vendor?.name ||
+    p?.attrs?.vendor?.name ||
+    prodName ||
+    null;
 
   return { sellerId, sellerName, cajaId: cajaId ? safeStr(cajaId) : null };
 }

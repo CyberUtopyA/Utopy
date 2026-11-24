@@ -113,14 +113,6 @@ function isOfferDV(d: any) {
   return k === "mt:offer" || traits.includes("mt:offer");
 }
 
-function isMandateCreateDV(d: any) {
-  return safeStr(d?.kind).trim() === "payment.mandate.create";
-}
-
-function isMandateCancelDV(d: any) {
-  return safeStr(d?.kind).trim() === "payment.mandate.cancel";
-}
-
 function getStockFromDV(d: any): number {
   const s = d?.attrs?.stock ?? d?.attrs?.inventory?.stock ?? d?.attrs?.cantidad ?? 0;
   const n = Number(s);
@@ -206,60 +198,6 @@ function findOfferForOrder(orderDv: any, all: any[]) {
     .sort((a: any, b: any) => parseTs(b) - parseTs(a));
 
   return candidates[0] || null;
-}
-
-function mandateKeyFromCreate(d: any) {
-  const buyerId = safeStr(d?.attrs?.buyerId);
-  const sellerId = safeStr(d?.attrs?.sellerId);
-  const productId = safeStr(d?.attrs?.productId || "");
-  const interval = safeStr(d?.attrs?.interval || "");
-  const every = safeStr(d?.attrs?.every || "");
-  return `${buyerId}|${sellerId}|${productId}|${interval}|${every}`;
-}
-
-function buildMandateCancelDV(
-  mandateCreateDv: any,
-  actor: { id: string; nombre?: string }
-) {
-  const key = mandateKeyFromCreate(mandateCreateDv);
-  return {
-    id: `payment.mandate.cancel:${key}:${Date.now()}`,
-    kind: "payment.mandate.cancel",
-    traits: ["mt:payment.mandate", "mt:cancel", "mt:market"],
-    attrs: {
-      mandateKey: key,
-      buyerId: safeStr(mandateCreateDv?.attrs?.buyerId),
-      buyerName: safeStr(mandateCreateDv?.attrs?.buyerName),
-      sellerId: safeStr(mandateCreateDv?.attrs?.sellerId),
-      sellerName: safeStr(mandateCreateDv?.attrs?.sellerName),
-      productId: safeStr(mandateCreateDv?.attrs?.productId),
-      note: "Cancelado automáticamente por cierre/completado del pedido",
-    },
-    meta: {
-      ns: safeStr(mandateCreateDv?.meta?.ns || "mt:market"),
-      ts: new Date().toISOString(),
-      actor: actor.id,
-      caja: { id: actor.id, nombre: actor.nombre || "Cajero" },
-      source: "ms.web.cajero.mandate.cancel",
-    },
-  };
-}
-
-function lastMandateCreateForOrder(orderDv: any, all: any[]) {
-  const buyerId = safeStr(orderDv?.attrs?.buyerId ?? orderDv?.attrs?.buyer?.id);
-  const sellerId = safeStr(orderDv?.attrs?.sellerId);
-  const productId = safeStr(
-    orderDv?.attrs?.productId || orderDv?.attrs?.items?.[0]?.productId || ""
-  );
-
-  return (
-    all
-      .filter(isMandateCreateDV)
-      .filter((d: any) => safeStr(d?.attrs?.buyerId) === buyerId)
-      .filter((d: any) => safeStr(d?.attrs?.sellerId) === sellerId)
-      .filter((d: any) => safeStr(d?.attrs?.productId || "") === productId)
-      .sort((a: any, b: any) => parseTs(b) - parseTs(a))[0] || null
-  );
 }
 
 async function publishLiveDV(dv: any) {
@@ -582,30 +520,6 @@ export default function CajeroPedidosPanel({
             source: "ms.web.cajero.offer.message",
           });
 
-          if (
-            getOfferQty(updatedOffer) <= 0 ||
-            safeStr(updatedOffer?.meta?.status) === "completed"
-          ) {
-            const mandateCreate = lastMandateCreateForOrder(orderDv, allDvs);
-            if (mandateCreate) {
-              const cancelDv = buildMandateCancelDV(mandateCreate, {
-                id: activeCajero.id,
-                nombre: activeCajero.nombre,
-              });
-              await publishLiveDV(cancelDv);
-
-              emitOrderMessage({
-                orderId,
-                threadId,
-                cajeroId: activeCajero.id,
-                cajeroName: activeCajero.nombre,
-                buyerId,
-                sellerId,
-                text: `El débito automático asociado al pedido fue cancelado automáticamente porque la oferta quedó cerrada.`,
-                source: "ms.web.cajero.mandate.message",
-              });
-            }
-          }
         }
       }
 

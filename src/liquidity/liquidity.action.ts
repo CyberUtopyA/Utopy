@@ -10,7 +10,7 @@ import {
   buildLiquidityTrustDV,
   buildLiquidityUnlockDV,
 } from "./mt.liquidity";
-import { emitUtopyDV } from "./liquiditypublish";
+import { emitUtopyDV } from "./liquidity.publish";
 import { useLiquidityStore } from "./liquidity.store";
 
 export function liqTransfer(input: Parameters<typeof buildLiquidityTransferDV>[0]) {

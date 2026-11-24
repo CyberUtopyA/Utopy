@@ -1,5 +1,5 @@
 // src/mt/payments/ChargesList.tsx
-// Lista mínima de mandates/charges para ver suscripciones y cobros.
+// Lista mínima de autorizaciones y cobros. No infiere suscripciones.
 // - Lee payment.mandate / payment.charge / payment.charge.accept
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -117,29 +117,29 @@ export default function ChargesList() {
     <Box>
       <Row>
         <b>Débitos automáticos</b>
-        <Sub>{mandates.length} mandates</Sub>
+        <Sub>{mandates.length} autorizaciones</Sub>
       </Row>
 
       <div style={{ height: 10 }} />
 
       {mandates.length === 0 ? (
-        <Sub>No tenés suscripciones activas.</Sub>
+        <Sub>No tenés pagos automáticos activos.</Sub>
       ) : (
         <div style={{ display: "grid", gap: 10 }}>
           {mandates.map((m: any) => (
             <Card key={m.id}>
               <Row>
                 <div style={{ fontWeight: 950 }}>
-                  {m?.attrs?.label || "Mandate"}
+                  {m?.attrs?.label || "Pago automático"}
                 </div>
                 <Sub>{m?.attrs?.active ? "Activo" : "Pausado"}</Sub>
               </Row>
               <Sub>
-                Seller: <b>{m?.attrs?.sellerName || m?.attrs?.sellerId}</b> ·
-                Max: <b>{Math.round(Number(m?.attrs?.amountMax || 0)).toLocaleString("es-PY")} {m?.attrs?.currency || "PYG"}</b>
+                Vendedor: <b>{m?.attrs?.sellerName || "Participante"}</b> ·
+                Máximo: <b>{Math.round(Number(m?.attrs?.amountMax || 0)).toLocaleString("es-PY")} {m?.attrs?.currency || "PYG"}</b>
               </Sub>
               <Sub>
-                Intervalo: <b>{m?.attrs?.interval}</b> cada <b>{m?.attrs?.every || 1}</b>
+                Frecuencia: <b>{m?.attrs?.interval}</b> cada <b>{m?.attrs?.every || 1}</b>
               </Sub>
             </Card>
           ))}
@@ -150,7 +150,7 @@ export default function ChargesList() {
 
       <Row>
         <b>Cobros</b>
-        <Sub>{charges.length} charges</Sub>
+        <Sub>{charges.length} pendientes</Sub>
       </Row>
 
       <div style={{ height: 10 }} />
@@ -177,7 +177,7 @@ export default function ChargesList() {
                   <Sub>{status}</Sub>
                 </Row>
                 <Sub>
-                  Due: {c?.attrs?.dueTs ? new Date(c.attrs.dueTs).toLocaleString() : "—"}
+                  Vence: {c?.attrs?.dueTs ? new Date(c.attrs.dueTs).toLocaleString() : "—"}
                 </Sub>
 
                 {accept == null && (

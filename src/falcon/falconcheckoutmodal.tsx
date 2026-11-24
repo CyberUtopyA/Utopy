@@ -275,10 +275,10 @@ export default function FalconCheckoutModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-5xl overflow-hidden rounded-[30px] border border-slate-200 bg-white shadow-2xl">
+    <div className="fixed inset-0 z-[130] flex items-end justify-center bg-slate-950/40 p-0 backdrop-blur-md sm:items-center sm:p-4">
+      <div role="dialog" aria-modal="true" aria-label="Confirmar compra" className="max-h-[94dvh] w-full max-w-5xl overflow-y-auto overscroll-contain rounded-t-[30px] border border-slate-200 bg-[#faf9fc] shadow-2xl sm:rounded-[30px]">
         <div className="grid lg:grid-cols-[1.02fr_0.98fr]">
-          <div className="min-h-[320px] bg-gradient-to-br from-cyan-100 via-slate-100 to-violet-100">
+          <div className="h-36 overflow-hidden bg-gradient-to-br from-cyan-100 via-slate-100 to-violet-100 sm:h-64 lg:h-auto">
             {product?.image ? (
               <img
                 src={product.image}
@@ -371,7 +371,7 @@ export default function FalconCheckoutModal({
               className="mt-3 min-h-[96px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-slate-950 outline-none"
             />
 
-            <div className="mt-4">
+            <details className="mt-4"><summary className="cursor-pointer py-3 text-sm font-semibold text-slate-600">Ver liquidez y otras posibilidades</summary>
               <FalconLiquidityPanel
                 actorId={cleanBuyerId}
                 actorName={name || cleanBuyerName}
@@ -390,7 +390,7 @@ export default function FalconCheckoutModal({
                   setMsg("Saldo y detalle cargados para esta compra.");
                 }}
               />
-            </div>
+            </details>
 
             <label className="mt-4 flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
               <input
@@ -414,11 +414,12 @@ export default function FalconCheckoutModal({
               </div>
             ) : null}
 
-            <div className="mt-5 flex flex-wrap gap-3">
+            <div className="sticky -bottom-6 -mx-6 mt-5 flex flex-wrap gap-3 border-t border-slate-100 bg-white/95 px-6 py-4 pb-[calc(16px+env(safe-area-inset-bottom))] backdrop-blur-md">
+              <p className="flex w-full items-center justify-between text-sm"><span className="text-slate-500">Total</span><strong>{fmt(total)} {currency}</strong></p>
               <button
                 onClick={confirmBuy}
                 disabled={busy || !name.trim()}
-                className="rounded-2xl border border-cyan-300 bg-cyan-100 px-4 py-3 text-sm font-bold text-cyan-900 hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-60"
+                className="min-h-12 flex-1 rounded-2xl border border-lime-200 bg-[#c2f571] px-4 py-3 text-sm font-bold text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {busy ? "Confirmando..." : "Confirmar compra"}
               </button>

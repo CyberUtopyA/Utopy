@@ -1,6 +1,7 @@
 // src/mt/mt.paymentIntent.ts
 import { spore } from "../utopy/spore.singleton";
 import { mtLiveUpsert } from "./mt.liveStore";
+import { publishAuthorizedDV } from "../utopy/authorizedPublish";
 
 export type PaymentChannel =
   | "transfer"
@@ -597,6 +598,9 @@ export async function emitPaymentOutcome(params: {
 
   ns?: string;
   source?: string;
+  allLive?: any[];
+  activeActor?: any;
+  actingAsNodeId?: string | null;
 }) {
   const ns = params.ns ?? "mt:market";
 
@@ -626,21 +630,25 @@ export async function emitPaymentOutcome(params: {
       ts: new Date().toISOString(),
       actor: params.actorId,
       source: params.source ?? "ms.payment.outcome",
+      scopes: ["participants"],
+      authority: params.actingAsNodeId || params.actorId,
     },
   };
 
-  return publishDV({
+  const authority = params.actingAsNodeId || params.actorId;
+  const published = await publishAuthorizedDV({
     dv,
-    say: "payment.outcome",
-    sym:
-      params.status === "paid"
-        ? "🟢"
-        : params.status === "pending_review"
-        ? "🟡"
-        : params.status === "scheduled"
-        ? "🕒"
-        : params.status === "cancelled"
-        ? "⚫"
-        : "🔴",
+    allLive: params.allLive || [],
+    activeActor: params.activeActor || {
+      id: params.actorId,
+      actorId: params.actorId,
+      name: params.actorName,
+    },
+    actingAsNodeId: authority,
+    requiredAuthority: authority,
+    action: "payment.outcome",
+    sensitivity: "sensitive",
   });
+  return published.dv;
+
 }

@@ -35,7 +35,7 @@ import {
 import FactoryLiveRadar, { DemandCluster } from "../mt/factoryliveradar";
 import { buildWorkIntentDV } from "../mt/work.builder";
 
-type Tab = "producto" | "oferta" | "produccion";
+type Tab = "producto" | "oferta" | "produccion" | "catalogo";
 type PayMode = "cajero" | "direct" | "hybrid";
 type EscrowMode = "none" | "delivery" | "multisig";
 type FinanceMode = "cash" | "credit" | "subscription" | "mixed";
@@ -82,90 +82,6 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
-function loadImageFromFile(file: File): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const fr = new FileReader();
-    fr.onload = () => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = reject;
-      img.src = String(fr.result || "");
-    };
-    fr.onerror = reject;
-    fr.readAsDataURL(file);
-  });
-}
-
-async function compressImageFile(
-  file: File,
-  opt?: {
-    maxWidth?: number;
-    maxHeight?: number;
-    quality?: number;
-    mimeType?: "image/jpeg" | "image/webp";
-  },
-): Promise<{
-  file: File;
-  dataUrl: string;
-  mime: string;
-  width: number;
-  height: number;
-}> {
-  const maxWidth = opt?.maxWidth ?? 1600;
-  const maxHeight = opt?.maxHeight ?? 1600;
-  const quality = opt?.quality ?? 0.82;
-  const mimeType = opt?.mimeType ?? "image/jpeg";
-
-  const img = await loadImageFromFile(file);
-  let { width, height } = img;
-
-  const scale = Math.min(
-    1,
-    maxWidth / Math.max(1, width),
-    maxHeight / Math.max(1, height),
-  );
-
-  const outW = Math.max(1, Math.round(width * scale));
-  const outH = Math.max(1, Math.round(height * scale));
-
-  const canvas = document.createElement("canvas");
-  canvas.width = outW;
-  canvas.height = outH;
-
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("No se pudo crear canvas para compresión.");
-
-  ctx.drawImage(img, 0, 0, outW, outH);
-  const dataUrl = canvas.toDataURL(mimeType, quality);
-
-  const blob = await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob(
-      (b) => {
-        if (!b) reject(new Error("No se pudo generar blob comprimido."));
-        else resolve(b);
-      },
-      mimeType,
-      quality,
-    );
-  });
-
-  const ext = mimeType === "image/webp" ? "webp" : "jpg";
-  const safeBase = (file.name || `img-${Date.now()}`)
-    .replace(/\.[^.]+$/, "")
-    .replace(/[^a-zA-Z0-9._-]/g, "_");
-
-  const compressedFile = new File([blob], `${safeBase}.${ext}`, {
-    type: mimeType,
-  });
-
-  return {
-    file: compressedFile,
-    dataUrl,
-    mime: mimeType,
-    width: outW,
-    height: outH,
-  };
-}
 
 async function filesToCompressedPreviews(
   files: File[],
@@ -723,7 +639,17 @@ export default function ProducirPanel({ currentCajero }: Props) {
     useState<CreditGuaranteeMode>("downpayment");
   const [creditTrustRequired, setCreditTrustRequired] = useState("");
   const [creditNote, setCreditNote] = useState("");
-
+const [catalogStoreId, setCatalogStoreId] = useState("decohogar");
+const [catalogStoreName, setCatalogStoreName] = useState("DecoHogar");
+const [catalogWhatsapp, setCatalogWhatsapp] = useState("595XXXXXXXXX");
+const [catalogCategoria, setCatalogCategoria] = useState("hogar");
+const [catalogPrecioDefault, setCatalogPrecioDefault] = useState("");
+const [catalogStockDefault, setCatalogStockDefault] = useState("1");
+const [catalogUnidadDefault, setCatalogUnidadDefault] = useState("u");
+const [catalogJson, setCatalogJson] = useState("");
+const [catalogFiles, setCatalogFiles] = useState<File[]>([]);
+const [catalogPreviews, setCatalogPreviews] = useState<string[]>([]);
+const [catalogPublishing, setCatalogPublishing] = useState(false);
   const [arUrl, setArUrl] = useState("");
   const [modelUrl, setModelUrl] = useState("");
   const [modelFormat, setModelFormat] = useState<"glb" | "usdz" | "obj" | "gltf">("glb");
@@ -780,7 +706,65 @@ export default function ProducirPanel({ currentCajero }: Props) {
         }
       : undefined;
   }, [currentCajero]);
+const actualizarWhatsappCatalogo = async () => {
+  const storeId = catalogStoreId.trim() || "decohogar";
+  const nuevoWhatsapp = catalogWhatsapp.trim();
 
+  if (!nuevoWhatsapp) {
+    setMsg("Poné el nuevo número de WhatsApp.");
+    return;
+  }
+
+  try {
+    setBusy(true);
+    setMsg("Actualizando número del catálogo...");
+
+    const base = getMarketApiBase();
+
+    const res = await fetch(`${base}/api/catalog-live.php?storeId=${encodeURIComponent(storeId)}`);
+    const json = await res.json();
+
+    const items = Array.isArray(json?.items) ? json.items : [];
+
+    const updated = items.map((dv: any) => ({
+      ...dv,
+      attrs: {
+        ...(dv.attrs || {}),
+        whatsapp: nuevoWhatsapp,
+      },
+      meta: {
+        ...(dv.meta || {}),
+        ts: new Date().toISOString(),
+        contact: {
+          ...(dv.meta?.contact || {}),
+          whatsapp: nuevoWhatsapp,
+        },
+        seller: {
+          ...(dv.meta?.seller || {}),
+          whatsapp: nuevoWhatsapp,
+        },
+      },
+    }));
+
+    await saveCatalogDvsToServer(updated);
+
+    for (const dv of updated) {
+      mtLiveUpsert(dv);
+
+      try {
+        await publishDatoVivo(dv);
+      } catch (e) {
+        console.warn("No se pudo republicar DV actualizado", e);
+      }
+    }
+
+    setMsg(`WhatsApp actualizado ✅ ${updated.length} productos de ${storeId}`);
+  } catch (e: any) {
+    setMsg(e?.message || "No se pudo actualizar el WhatsApp");
+  } finally {
+    setBusy(false);
+  }
+};
   const withSpore = async (fn: (sp: any) => Promise<void>) => {
     setBusy(true);
     setMsg(null);
@@ -822,7 +806,227 @@ export default function ProducirPanel({ currentCajero }: Props) {
     if (channel === "cash") return { ...base, address: null };
     return { ...base, address: v };
   };
+function parseCatalogProducts() {
+  if (!catalogJson.trim()) return [];
 
+  try {
+    const parsed = JSON.parse(catalogJson);
+    if (Array.isArray(parsed)) return parsed;
+    if (Array.isArray(parsed.products)) return parsed.products;
+    if (Array.isArray(parsed.productos)) return parsed.productos;
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+const onPickCatalogFiles = async (files: File[]) => {
+  if (!files.length) {
+    setCatalogFiles([]);
+    setCatalogPreviews([]);
+    return;
+  }
+
+  try {
+    const compressed = await filesToCompressedPreviews(files, {
+      maxWidth: 1400,
+      maxHeight: 1400,
+      quality: 0.78,
+      mimeType: "image/jpeg",
+    });
+
+    setCatalogFiles(compressed.map((x) => x.compressed));
+    setCatalogPreviews(compressed.map((x) => x.preview));
+  } catch (e) {
+    console.warn("No se pudo comprimir catálogo", e);
+    setCatalogFiles(files);
+    setCatalogPreviews([]);
+  }
+};
+
+const submitCatalogoMasivo = async () => {
+  if (!catalogFiles.length) {
+    setMsg("Subí al menos una imagen del catálogo.");
+    return;
+  }
+
+  const storeId = catalogStoreId.trim() || "tienda";
+  const storeName = catalogStoreName.trim() || "Tienda";
+  const whatsapp = catalogWhatsapp.trim();
+  const iaProducts = parseCatalogProducts();
+
+  try {
+    setCatalogPublishing(true);
+    setBusy(true);
+    setMsg(`Subiendo catálogo: 0/${catalogFiles.length}`);
+
+    const created: MtProduct[] = [];
+    const dvsToSave: DatoVivo[] = [];
+
+    for (let i = 0; i < catalogFiles.length; i++) {
+      const file = catalogFiles[i];
+      const ia = iaProducts[i] || {};
+
+      setMsg(`Subiendo catálogo: ${i + 1}/${catalogFiles.length}`);
+
+      const uploaded = await uploadImageToMarketNode(file);
+
+      const nombre =
+        safeStr(ia.nombre || ia.name || ia.title).trim() ||
+        `Producto ${String(i + 1).padStart(3, "0")} - ${storeName}`;
+
+      const descripcion =
+        safeStr(ia.descripcion || ia.description || ia.detalle).trim() ||
+        "Producto disponible en catálogo. Consultar precio, medidas y disponibilidad.";
+
+      const categoriaProducto = normalizeCategoryToken(
+        ia.categoria || ia.category || catalogCategoria || "hogar",
+      );
+
+      const precioRaw = ia.precio ?? ia.price ?? catalogPrecioDefault;
+      const precioNum = Number(precioRaw || 0);
+      const precioFinal =
+        Number.isFinite(precioNum) && precioNum > 0 ? precioNum : 0;
+
+      const stockRaw = ia.stock ?? catalogStockDefault;
+      const stockNum = Number(stockRaw || 1);
+
+      const unidad = safeStr(ia.unidad || ia.unit || catalogUnidadDefault).trim() || "u";
+
+      const tags = Array.isArray(ia.tags)
+        ? ia.tags.map((x: any) => safeStr(x)).filter(Boolean)
+        : parseTags(
+            safeStr(ia.tags || ia.etiquetas || `${storeName}, ${categoriaProducto}`),
+          );
+
+     let meta: MtProduct["meta"] = {
+  ns: ns || "mt:market",
+  origin: "catalog.upload",
+  catalog: true,
+
+  storeId,
+  storeName,
+
+  seller: {
+    id: storeId,
+    name: storeName,
+    type: "store-node",
+    whatsapp,
+  },
+
+  originNode: storeId,
+  authority: storeId,
+  replicatedBy: ["market.utopy.live"],
+  portable: true,
+  exportable: true,
+  canMirror: true,
+
+  description: descripcion,
+  priceMode: precioFinal > 0 ? "fixed" : "consultar",
+  contact: {
+    whatsapp,
+  },
+  media: {
+    image: uploaded,
+    gallery: [uploaded],
+  },
+} as any;
+
+      if (categoriaProducto) {
+        (meta as any).cat = categoriaProducto;
+        (meta as any).categorias = [categoriaProducto];
+      }
+
+      if (cajaTag) {
+        (meta as any).caja = cajaTag;
+      }
+
+      meta = buildPayMeta(meta as any);
+
+      const producto: MtProduct = {
+        id: createId(`mt:producto:${storeId}:`),
+        nombre,
+        imagen: uploaded.url,
+        precio: precioFinal,
+        unidad,
+        stock: Number.isFinite(stockNum) ? stockNum : 1,
+        productor: currentCajero
+          ? { id: currentCajero.id, nombre: currentCajero.nombre }
+          : { id: storeId, nombre: storeName },
+        tags,
+        meta,
+      };
+
+      const baseDv = productToDatoVivo(producto);
+
+      const dv: DatoVivo = {
+        ...baseDv,
+       attrs: {
+  ...baseDv.attrs,
+  descripcion,
+  tienda: storeName,
+  vendedor: storeName,
+  sellerId: storeId,
+  storeId,
+  whatsapp,
+  categoria: categoriaProducto,
+},
+        traits: [
+          ...(baseDv.traits || []),
+          "mt:catalog",
+          "mt:catalog.upload",
+          `store:${storeId}`,
+          categoriaProducto ? `cat:${categoriaProducto}` : "cat:general",
+        ],
+        meta: {
+          ...(baseDv.meta || {}),
+          ...meta,
+          name: nombre,
+        },
+      };
+
+     mtLiveUpsert(dv);
+
+try {
+  await publishDatoVivo(dv);
+} catch (e) {
+  console.warn("No se pudo emitir vivo, pero se guardará en el nodo semilla", e);
+}
+
+dvsToSave.push(dv);
+created.push(producto);
+    }
+    await saveCatalogDvsToServer(dvsToSave);
+
+    try {
+      if (spore) {
+        await spore.sayIntent({
+          sym: "📚",
+          say: "mt.catalog.upload",
+          with: {
+            storeId,
+            storeName,
+            count: created.length,
+            ns: ns || "mt:market",
+          },
+        });
+      }
+    } catch (e) {
+      console.warn("[MT catalog] Spore intent falló", e);
+    }
+
+    setMsg(`Catálogo publicado ✅ ${created.length} productos vivos en ${storeName}`);
+
+    setCatalogFiles([]);
+    setCatalogPreviews([]);
+    setCatalogJson("");
+  } catch (e: any) {
+    setMsg(e?.message || "Error subiendo catálogo");
+  } finally {
+    setCatalogPublishing(false);
+    setBusy(false);
+  }
+};
   const buildPayMeta = (metaBase: any) => {
     const pay: any = {
       mode: payMode,
@@ -893,7 +1097,7 @@ export default function ProducirPanel({ currentCajero }: Props) {
   };
 
   const handleOpenFactoryThread = (threadId: string, cluster: DemandCluster) => {
-    console.log("[FactoryLiveRadar] abrir hilo", threadId, cluster);
+    if (import.meta.env.DEV) console.debug("[FactoryLiveRadar] abrir hilo", threadId, cluster);
     setMsg(`Abrir hilo: ${threadId}`);
   };
 
@@ -972,7 +1176,37 @@ export default function ProducirPanel({ currentCajero }: Props) {
       },
     ]);
   };
+function getMarketApiBase() {
+  const host = window.location.hostname;
 
+  if (host === "localhost" || host === "127.0.0.1") {
+    return "https://market.utopy.live";
+  }
+
+  return "";
+}
+
+async function saveCatalogDvsToServer(items: DatoVivo[]) {
+  const base = getMarketApiBase();
+
+  const res = await fetch(`${base}/api/catalog-live.php`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      items,
+    }),
+  });
+
+  const json = await res.json().catch(() => null);
+
+  if (!res.ok || !json?.ok) {
+    throw new Error(json?.error || "No se pudo guardar catálogo en servidor");
+  }
+
+  return json;
+}
   const updateMaterialRow = (id: string, patch: Partial<MaterialRow>) => {
     setMaterials((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)));
   };
@@ -1507,20 +1741,23 @@ export default function ProducirPanel({ currentCajero }: Props) {
             <CheckCircle2 size={15} />
             {currentCajero
               ? `Cajero activo: ${currentCajero.nombre}`
-              : "Sin cajero activo"}
+              : "Listo para publicar"}
           </StatusPill>
         </HeroTop>
       </Hero>
 
       {msg ? <MsgBox ok={!/error|inválid|no se pudo/i.test(msg)}>{msg}</MsgBox> : null}
 
-      <Grid2>
+      <details style={{ border: "1px solid rgba(15,23,42,.08)", borderRadius: 20, padding: 14, background: "rgba(255,255,255,.72)" }}>
+        <summary style={{ cursor: "pointer", fontWeight: 900 }}>Operadores y configuración avanzada</summary>
+        <button type="button" onClick={() => setTab("catalogo")} style={{ marginTop: 12, border: "1px solid rgba(15,23,42,.12)", borderRadius: 999, padding: "9px 14px", background: "white", fontWeight: 900 }}>Catálogo masivo</button>
+      <Grid2 style={{ marginTop: 14 }}>
         <SectionCard>
           <SectionHead>
             <SectionTitleWrap>
               <SectionTitle>
                 <ShieldCheck size={17} />
-                Crear cajero local
+                Administrar cajeros
               </SectionTitle>
               <Subtle>Solo si todavía no tenés uno activo.</Subtle>
             </SectionTitleWrap>
@@ -1551,7 +1788,7 @@ export default function ProducirPanel({ currentCajero }: Props) {
             <SectionTitleWrap>
               <SectionTitle>
                 <Store size={17} />
-                Namespace de destino
+                Destino técnico
               </SectionTitle>
               <Subtle>
                 Define el mundo o contexto semántico en el que vivirá este
@@ -1568,6 +1805,7 @@ export default function ProducirPanel({ currentCajero }: Props) {
           />
         </SectionCard>
       </Grid2>
+      </details>
 
       <FullCard>
         <SectionHead>
@@ -1593,10 +1831,13 @@ export default function ProducirPanel({ currentCajero }: Props) {
             <PlusCircle size={15} />
             Producto
           </TabBtn>
-
-          <TabBtn active={tab === "oferta"} onClick={() => setTab("oferta")}>
+          <TabBtn active={tab === "oferta" && oTipo === "venta"} onClick={() => { setOTipo("venta"); setTab("oferta"); }}>
             <Coins size={15} />
-            Oferta / Demanda
+            Oferta
+          </TabBtn>
+          <TabBtn active={tab === "oferta" && oTipo === "compra"} onClick={() => { setOTipo("compra"); setTab("oferta"); }}>
+            <Megaphone size={15} />
+            Necesidad
           </TabBtn>
 
           <TabBtn active={tab === "produccion"} onClick={() => setTab("produccion")}>
@@ -1605,6 +1846,176 @@ export default function ProducirPanel({ currentCajero }: Props) {
           </TabBtn>
         </Tabs>
       </FullCard>
+      {tab === "catalogo" && (
+  <FullCard>
+    <SectionHead>
+      <SectionTitleWrap>
+        <SectionTitle>
+          <Store size={17} />
+          Catálogo masivo vivo
+        </SectionTitle>
+        <Subtle>
+          Subí muchas fotos de una tienda y se convierten en productos vivos dentro del mercado principal.
+        </Subtle>
+      </SectionTitleWrap>
+    </SectionHead>
+
+    <SoftInfo>
+      Ideal para DecoHogar, Madefer u otra tienda. Primero subís las fotos.
+      Si tenés un JSON generado por IA, lo pegás abajo para poner nombres,
+      descripciones y categorías automáticamente. Si no, se crean como borradores
+      vivos para completar después.
+    </SoftInfo>
+
+    <FormGrid style={{ marginTop: 14 }}>
+      <Field span={3}>
+        <Label>ID tienda</Label>
+        <Input
+          value={catalogStoreId}
+          onChange={(e) => setCatalogStoreId(e.target.value)}
+          placeholder="decohogar"
+        />
+      </Field>
+
+      <Field span={3}>
+        <Label>Nombre tienda</Label>
+        <Input
+          value={catalogStoreName}
+          onChange={(e) => setCatalogStoreName(e.target.value)}
+          placeholder="DecoHogar"
+        />
+      </Field>
+
+      <Field span={3}>
+        <Label>WhatsApp</Label>
+        <Input
+          value={catalogWhatsapp}
+          onChange={(e) => setCatalogWhatsapp(e.target.value)}
+          placeholder="595981000000"
+        />
+      </Field>
+      <Field span={3}>
+  <Label>&nbsp;</Label>
+  <SmallBtn
+    type="button"
+    ghost
+    onClick={actualizarWhatsappCatalogo}
+    disabled={busy}
+  >
+    Actualizar número
+  </SmallBtn>
+</Field>
+
+      <Field span={3}>
+        <Label>Categoría base</Label>
+        <Input
+          value={catalogCategoria}
+          onChange={(e) => setCatalogCategoria(e.target.value)}
+          placeholder="hogar"
+        />
+      </Field>
+
+      <Field span={4}>
+        <Label>Precio por defecto</Label>
+        <Input
+          value={catalogPrecioDefault}
+          onChange={(e) => setCatalogPrecioDefault(e.target.value)}
+          placeholder="Dejar vacío para consultar"
+        />
+      </Field>
+
+      <Field span={4}>
+        <Label>Stock por defecto</Label>
+        <Input
+          value={catalogStockDefault}
+          onChange={(e) => setCatalogStockDefault(e.target.value)}
+          placeholder="1"
+        />
+      </Field>
+
+      <Field span={4}>
+        <Label>Unidad</Label>
+        <Input
+          value={catalogUnidadDefault}
+          onChange={(e) => setCatalogUnidadDefault(e.target.value)}
+          placeholder="u"
+        />
+      </Field>
+
+      <Field span={12}>
+        <Label>Subir fotos del catálogo</Label>
+        <Input
+          type="file"
+          multiple
+          accept="image/*"
+          onChange={(e) => onPickCatalogFiles(Array.from(e.target.files || []))}
+        />
+        <MiniNote>
+          Podés subir muchas fotos. Se comprimen antes para que no sea pesado.
+        </MiniNote>
+      </Field>
+
+      {catalogPreviews.length ? (
+        <Field span={12}>
+          <div
+            style={{
+              display: "grid",
+              gap: 10,
+              gridTemplateColumns: "repeat(auto-fit,minmax(86px,1fr))",
+            }}
+          >
+            {catalogPreviews.map((src, i) => (
+              <img
+                key={i}
+                src={src}
+                alt={`catalogo-${i}`}
+                style={{
+                  width: "100%",
+                  aspectRatio: "1 / 1",
+                  objectFit: "cover",
+                  borderRadius: 12,
+                  border: "1px solid rgba(0,0,0,0.08)",
+                }}
+              />
+            ))}
+          </div>
+        </Field>
+      ) : null}
+
+      <Field span={12}>
+        <Label>JSON IA opcional</Label>
+        <TextArea
+          value={catalogJson}
+          onChange={(e) => setCatalogJson(e.target.value)}
+          placeholder={`[
+  {
+    "nombre": "Licuadora Speed 1.5L",
+    "descripcion": "Licuadora práctica para jugos, batidos y cocina diaria.",
+    "categoria": "electrodomesticos",
+    "precio": "",
+    "stock": 1,
+    "unidad": "u",
+    "tags": ["licuadora", "speed", "cocina"]
+  }
+]`}
+          style={{ minHeight: 180 }}
+        />
+        <MiniNote>
+          El producto 1 del JSON corresponde a la foto 1, el producto 2 a la foto 2, y así.
+        </MiniNote>
+      </Field>
+    </FormGrid>
+
+    <PublishBar>
+      <PublishCard>
+        <SmallBtn onClick={submitCatalogoMasivo} disabled={catalogPublishing || busy}>
+          <Sparkles size={15} />
+          {catalogPublishing ? "Publicando catálogo..." : "Publicar catálogo vivo"}
+        </SmallBtn>
+      </PublishCard>
+    </PublishBar>
+  </FullCard>
+)}
 
       {tab === "produccion" && (
   <FactoryLiveRadar
@@ -2332,3 +2743,4 @@ export default function ProducirPanel({ currentCajero }: Props) {
     </Wrap>
   );
 }
+import { compressImageFile } from '../media/imageCompression';

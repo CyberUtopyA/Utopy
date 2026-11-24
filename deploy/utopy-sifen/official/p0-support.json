@@ -1,0 +1,10 @@
+{
+  "version": "0.1.0",
+  "environment": "test",
+  "codeComplete": false,
+  "supported": ["invoice", "PYG", "cash-condition", "product", "service", "material", "labor", "mixed-lines", "explicit-full-IVA-5", "explicit-full-IVA-10", "cash-payment", "bank-transfer-payment", "mock-accepted", "mock-rejected", "private-KuDE-preview", "private-accepted-KuDE", "CDC-query-0422-content-validation"],
+  "requiresConfiguration": ["issuer-authority", "fiscalSubject", "qualified-certificate", "CSC", "timbrado", "numbering", "identified-receiver", "official-geography-and-activity-codes", "pinned-WSDL-closure"],
+  "unsupported": ["production", "foreign-currency", "credit-installments", "discounts", "exempt-and-partially-taxed-lines", "innominado", "credit-notes", "remission", "cancellation", "nomination-events", "electronic-events"],
+  "pendingConformance": ["cumulative-NT-review", "official-tables-lock", "receiver-validation-consolidation", "rounding-conformance", "real-WSDL-verification"],
+  "notes": "Local XSD/signature/mock success does not attest normative conformance or DNIT acceptance. Real submission remains gated on completed conformance."
+}

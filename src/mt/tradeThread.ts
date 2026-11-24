@@ -1,4 +1,5 @@
 // tradeThread.ts
+import { resolveDvThreadId } from "./mt.threadProtocol";
 export function makeOfferThreadId(offerId: string) {
   return `trade:thread:${String(offerId)}`;
 }
@@ -13,11 +14,7 @@ export function safeStr(x: any) {
 
 // ✅ nuevo: thread preferido desde attrs.contact.threadId
 export function getDesignThreadIdFromAny(x: any): string | null {
-  const t =
-    x?.attrs?.contact?.threadId ??
-    x?.contact?.threadId ??
-    x?.meta?.threadId ??
-    null;
+  const t = resolveDvThreadId(x) || null;
 
   return typeof t === "string" && t.trim() ? t.trim() : null;
 }

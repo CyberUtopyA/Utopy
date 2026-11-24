@@ -1,0 +1,68 @@
+UTOPY / MS MARKET — actualización web LUA
+
+Incluye la portada sin rayita y la paleta cálida fija de LUA, independiente del
+modo claro/oscuro del teléfono, con campos nativos y gestión de contraste explícito.
+Es acumulativo: no requiere parches web anteriores ni reinstalar Node para estos estilos.
+También incluye portadas responsive y logos reducidos, conservando transparencia.
+Las fotos propias configuradas por cada nodo mantienen su origen y sus permisos.
+Incluye la opción Recordar mis datos para próximas citas en el mismo navegador,
+con resumen editable y autorización separada para compartir con el negocio.
+Vista de gestión para probar sin tocar datos reales: /prueba (LUA) o
+/prueba?marca=bassi. Los cambios de esa vista no se guardan y las fotos no se suben.
+
+1. Hacé una copia de seguridad de la web actual de cPanel.
+2. Subí este ZIP a la carpeta donde está el index.html de MS Market y extraelo ahí.
+   index.html y assets/ deben quedar juntos, no dentro de otra carpeta dist/.
+3. No borres assets anteriores, api/, configuraciones ni .htaccess. Clientes con
+   una versión anterior de la PWA todavía pueden necesitar esos archivos.
+4. Abrí https://TU-DOMINIO/lua y recargá para actualizar la PWA.
+   Acceso profesional: https://TU-DOMINIO/lua/gestionar.
+   Si ves una versión anterior, probá Ctrl+F5. No borres los datos del sitio
+   ni IndexedDB: pueden contener tu Identidad UTOPY y datos locales.
+
+Paquete de actualización para MS Market YA instalado: conserva sus imágenes,
+videos, iconos y archivos públicos actuales. No contiene esos medios sin cambios.
+El ZIP incluye index.html, assets/, service worker y manifiesto del nuevo build,
+sin código fuente, credenciales, bases,
+node_modules ni servidor Node. No sobrescribe PHP, utopy-bootstrap-nodes.json
+ni lua-node.json, para preservar la configuración viva del hosting.
+
+IMPORTANTE: sin nodo conectado /lua muestra la presentación y servicios de LUA,
+pero informa que no hay agenda habilitada. No confirma reservas ficticias.
+La portada y el logo incluidos no sustituyen los precios, duraciones, fotografías
+de servicios y horarios reales que debe completar el negocio.
+
+Para enlazar el nodo REAL, creá o actualizá en la raíz de la web el archivo:
+  lua-node.json
+con el identificador exacto del nodo autorizado:
+  { "nodeId": "IDENTIFICADOR_REAL_DEL_NODO" }
+El manifiesto firmado de ese nodo debe llegar mediante el descubrimiento existente
+de UTOPY y declarar endpoints.livingBooking. Ese endpoint debe ejecutar el motor
+de reservas conectado a Runtime/Identity. Un identificador escrito aquí no concede
+permisos ni crea un negocio, un servidor ni horarios disponibles.
+
+Si /lua da 404 al entrar directamente, integrá estas reglas a tu .htaccess
+EXISTENTE, después de sus excepciones de API, sin reemplazar todo el archivo:
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^lua(?:/gestionar)?/?$ /index.html [L]
+</IfModule>
+
+No habilites caché prolongada para index.html, sw.js y lua-node.json.
+Verificá index.html y sus assets como un conjunto: no subas un JS suelto de otro
+build. Los nombres con hash y el precache PWA requieren archivos compatibles.
+
+Este ZIP no instala Node en cPanel ni activa WhatsApp, recordatorios, pagos o
+publicación de diseños Studio. La configuración del servidor del nodo se documenta
+en docs/LUA_AGENDAMIENTO.md del repositorio; nunca subas su base privada a public_html.
+MT — ENTRADA TERRITORIAL
+La entrada /mt reutiliza la misma aplicación y los motores actuales de Market y agenda.
+Las rutas /market, /lua y /bassi se conservan. / pasa a /mt.
+Este paquete no instala backend ni conecta propietarios o agendas no configuradas.
+Identidad global multidispositivo, GE y verificación de compra/comprobante real siguen pendientes.
+No borrar bases de datos, claves, configuraciones, archivos de vinculación ni datos del navegador.
+No desplegar como integración final de producción sin revisar los bloqueos del informe MT_EVOLUCION.md.
+

@@ -8,3 +8,4 @@ Disallow: /exitoso
 Disallow: /pago-exitoso
 
 Sitemap: https://market.utopy.live/sitemap.xml
+Sitemap: https://market.utopy.live/api/product-sitemap.php

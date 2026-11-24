@@ -1,0 +1,16 @@
+BASSI / MS MARKET · actualización web acumulada
+
+1. Guardá una copia de la web actual.
+2. Extraé este ZIP donde está index.html de Market. Índice y assets deben quedar juntos.
+3. Reemplazá sólo los archivos incluidos. No borres assets antiguos, API, .htaccess,
+   lua-node.json, bassi-node.json, claves, bases ni configuración del hosting.
+4. Abrí /bassi o /bassi/gestionar y recargá con Ctrl+F5.
+
+Incluye estilos de gestión, logo y Bienvenido, portada y dependencias compiladas
+coherentes del mismo build. No depende de ZIPs/parches anteriores.
+No es una instalación limpia. Conserva los medios públicos antiguos ya instalados.
+No requiere reinstalar Node para estos cambios. No activa una agenda no conectada.
+No borres los datos del sitio ni IndexedDB: pueden contener tu Identidad UTOPY.
+
+No contiene credenciales privadas, bases, node_modules ni servidor Node.
+Los pagos, propiedad, permisos y reservas no se transfieren ni se borran.

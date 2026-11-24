@@ -2,7 +2,7 @@ import React, { useMemo } from "react";
 import styled from "styled-components";
 import PresenceRadar from "../utopy/presence/PresenceRadar";
 import PresenceNowChip from "../utopy/presence/PresenceNowChip";
-import usePresenceScanner from "../pages/usepresencescanner";
+import usePresenceScanner from "../utopy/presence/usepresencescanner";
 
 type AnyDV = any;
 
@@ -243,7 +243,8 @@ function hasTrait(dv: any, trait: string): boolean {
 
 function getDemandMaterialKey(dv: any): string {
   return normKey(
-    dv?.attrs?.materialKey ||
+    dv?.attrs?.intent?.resources?.[0] ||
+      dv?.attrs?.materialKey ||
       dv?.attrs?.productoId ||
       dv?.meta?.materialKey ||
       dv?.meta?.productKey
@@ -252,7 +253,9 @@ function getDemandMaterialKey(dv: any): string {
 
 function getDemandMaterialName(dv: any): string {
   return safeStr(
-    dv?.attrs?.materialName ||
+    dv?.labels?.[0] ||
+      dv?.attrs?.intent?.resources?.[0] ||
+      dv?.attrs?.materialName ||
       dv?.attrs?.title ||
       dv?.meta?.name ||
       dv?.attrs?.productoNombre ||
@@ -261,11 +264,16 @@ function getDemandMaterialName(dv: any): string {
 }
 
 function getDemandUnit(dv: any): string {
-  return safeStr(dv?.attrs?.unit || dv?.attrs?.unidad || "u");
+  return safeStr(
+    dv?.attrs?.intent?.unit || dv?.attrs?.unit || dv?.attrs?.unidad || "u"
+  );
 }
 
 function getDemandQuantity(dv: any): number {
-  return toNum(dv?.attrs?.quantity || dv?.attrs?.cantidad, 0);
+  return toNum(
+    dv?.attrs?.intent?.quantity || dv?.attrs?.quantity || dv?.attrs?.cantidad,
+    0
+  );
 }
 
 function getDemandMaxUnitPrice(dv: any): number | null {
@@ -278,10 +286,18 @@ function getDemandThreadId(dv: any): string {
 }
 
 function getDemandTs(dv: any): number {
-  return toNum(dv?.meta?.ts || dv?.attrs?.ts || 0, 0);
+  const raw = dv?.ts ?? dv?.meta?.ts ?? dv?.attrs?.ts ?? 0;
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return raw < 10_000_000_000 ? raw * 1000 : raw;
+  }
+  const parsed = Date.parse(String(raw || ""));
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function isSupplyOffer(dv: any): boolean {
+  if (dv?.kind === "capability.offer" && Array.isArray(dv?.attrs?.capabilities)) {
+    return true;
+  }
   if (dv?.kind !== "mt:offer") return false;
   const side = safeStr(dv?.attrs?.side || dv?.meta?.side).toLowerCase();
   const tipo = safeStr(dv?.attrs?.tipo || dv?.meta?.tipo).toLowerCase();
@@ -290,7 +306,8 @@ function isSupplyOffer(dv: any): boolean {
 
 function getOfferProductKey(dv: any): string {
   return normKey(
-    dv?.attrs?.productoId ||
+    dv?.attrs?.capabilities?.[0]?.resources?.[0] ||
+      dv?.attrs?.productoId ||
       dv?.attrs?.materialKey ||
       dv?.meta?.materialKey ||
       dv?.meta?.productKey
@@ -303,12 +320,21 @@ function getOfferPrice(dv: any): number {
 
 function getOfferStock(dv: any): number {
   const a = dv?.attrs || {};
-  return toNum(a.stock ?? a.cantidad ?? a.quantity, 0);
+  return toNum(
+    a.capabilities?.[0]?.quantities?.[0]?.max ??
+      a.stock ??
+      a.cantidad ??
+      a.quantity,
+    0
+  );
 }
 
 function getOfferSellerName(dv: any): string {
   return safeStr(
-    dv?.attrs?.productor?.nombre ||
+    dv?.labels?.[0] ||
+      dv?.attrs?.node?.name ||
+      dv?.attrs?.node?.id ||
+      dv?.attrs?.productor?.nombre ||
       dv?.attrs?.sellerName ||
       dv?.meta?.sellerName ||
       "Proveedor"
@@ -326,6 +352,8 @@ function mapScannerPresenceToRadar(items: any[]): RadarPresencePoint[] {
     targetId: p.targetId || null,
     targetKind: p.targetKind || null,
     materialKey:
+      p.raw?.attrs?.intent?.resources?.[0] ||
+      p.raw?.attrs?.capabilities?.[0]?.resources?.[0] ||
       p.raw?.attrs?.materialKey ||
       p.raw?.attrs?.target?.materialKey ||
       p.raw?.meta?.materialKey ||
@@ -499,7 +527,13 @@ export default function FactoryLiveRadar({
   }, [nearby, scannedPresences]);
 
   const demandMaterials = useMemo(() => {
-    return (liveItems || []).filter((dv) => dv?.kind === "mt:demand.material");
+    return (liveItems || []).filter(
+      (dv) =>
+        dv?.kind === "mt:demand.material" ||
+        (dv?.attrs?.intent?.mode === "need" &&
+          Array.isArray(dv?.attrs?.intent?.resources) &&
+          dv.attrs.intent.resources.length > 0)
+    );
   }, [liveItems]);
 
   const supplyOffers = useMemo(() => {
@@ -574,7 +608,7 @@ export default function FactoryLiveRadar({
             <StatBox>
               <StatLabel>Más fuerte</StatLabel>
               <div style={{ fontWeight: 900, fontSize: 14 }}>
-                {strongest?.actorName || strongest?.actorId || "—"}
+                {strongest?.actorName || (strongest ? "Persona" : "—")}
               </div>
             </StatBox>
           </StatsGrid>
@@ -586,7 +620,8 @@ export default function FactoryLiveRadar({
           <SectionTitleWrap>
             <SectionTitle>Materiales agrupados</SectionTitle>
             <Subtle>
-              Detecta materiales repetidos, cruza ofertas existentes y prioriza por presencia viva.
+              Detecta necesidades repetidas, capacidades de cualquier nodo y
+              frecuencias vivas compatibles.
             </Subtle>
           </SectionTitleWrap>
         </SectionHead>
@@ -611,11 +646,11 @@ export default function FactoryLiveRadar({
                       <Chip tone="gray">{cluster.count} demanda(s)</Chip>
                       <Chip tone={cluster.matchedOffers.length ? "green" : "orange"}>
                         {cluster.matchedOffers.length
-                          ? `${cluster.matchedOffers.length} match`
+                          ? `${cluster.matchedOffers.length} resonancia(s)`
                           : "sin oferta"}
                       </Chip>
                       {!!cluster.presenceCount && (
-                        <Chip tone="green">presence {cluster.presenceCount}</Chip>
+                        <Chip tone="green">señales {cluster.presenceCount}</Chip>
                       )}
                       <Chip tone="gray">score {cluster.radarScore.toFixed(1)}</Chip>
                     </DemandMeta>
@@ -631,7 +666,7 @@ export default function FactoryLiveRadar({
 
                     {best ? (
                       <MatchBox>
-                        <MatchTitle>Mejor oferta: {getOfferSellerName(best)}</MatchTitle>
+                        <MatchTitle>Mejor capacidad: {getOfferSellerName(best)}</MatchTitle>
                         <MatchSub>
                           Precio: {getOfferPrice(best) || "s/d"} · Stock:{" "}
                           {getOfferStock(best) || "s/d"}
@@ -639,7 +674,7 @@ export default function FactoryLiveRadar({
                       </MatchBox>
                     ) : (
                       <MatchBox>
-                        <MatchTitle>Sin match automático</MatchTitle>
+                        <MatchTitle>Sin resonancia compatible</MatchTitle>
                         <MatchSub>
                           Todavía no hay oferta compatible para este material.
                         </MatchSub>
@@ -663,7 +698,7 @@ export default function FactoryLiveRadar({
                           if (onOfferMaterial) onOfferMaterial(cluster);
                         }}
                       >
-                        Ofertar material
+                        Responder señal
                       </Btn>
                     </Row>
                   </div>
